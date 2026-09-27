@@ -37,17 +37,26 @@ export type PhaseCue = {
   rounds: number;
   /** boundaries crossed in this tick — >1 means we caught up after throttling */
   missed?: number;
+  /**
+   * Force the notification even though the screen is now visible. Set when a
+   * gap (throttle/sleep) proved the user was NOT watching those phases — e.g.
+   * unlocking straight into the app. The ring shows the truth, but the cues
+   * for those boundaries were physically missed.
+   */
+  forceNotify?: boolean;
 };
 
 /**
  * Segment changed (work ⇄ rest). When the app is in front, ring + sound +
  * haptics already carry the cue; when the screen is not visible we escalate
  * to a persistent notification so a phone in a pocket still alerts.
+ * ONE dispatch per boundary — the haptic pattern comes from the next segment
+ * only, so work ⇄ rest can never double-fire into a 4-beat.
  */
 export function cuePhaseChange(settings: Settings, phase: PhaseCue): void {
   if (settings.sound) playPhaseChange();
   if (settings.vibrate) buzz(PULSE[phase.next.kind]);
-  if (!screenHidden()) return;
+  if (!screenHidden() && !phase.forceNotify) return;
 
   const missed = (phase.missed ?? 1) > 1 ? ` · ${phase.missed} phases passed` : '';
   void showCueNotification({

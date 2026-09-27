@@ -31,22 +31,31 @@ function markAsked(): void {
 }
 
 /** Call from a user gesture (first Start tap). Safe to call on every start. */
-export async function requestNotifyPermissionOnce(): Promise<void> {
-  if (!notificationsSupported()) return;
+export async function requestNotifyPermissionOnce(): Promise<NotificationPermission | 'unsupported'> {
+  if (!notificationsSupported()) return 'unsupported';
   if (Notification.permission !== 'default') {
     markAsked();
-    return;
+    return Notification.permission;
   }
-  if (readAsked()) return;
+  if (readAsked()) return Notification.permission;
   markAsked();
   try {
-    await Promise.race([
+    const result = await Promise.race([
       Notification.requestPermission(),
-      new Promise((resolve) => window.setTimeout(resolve, 2000)),
+      new Promise<NotificationPermission | undefined>((resolve) =>
+        window.setTimeout(resolve, 2000)
+      ),
     ]);
+    return typeof result === 'string' ? result : Notification.permission;
   } catch {
     /* browser refused — sound/vibration remain as cues */
+    return Notification.permission;
   }
+}
+
+/** Current permission state — drives the "notifications off" hint in the UI. */
+export function getNotificationState(): NotificationPermission | 'unsupported' {
+  return notificationsSupported() ? Notification.permission : 'unsupported';
 }
 
 function assetUrl(path: string): string {
@@ -71,8 +80,11 @@ export async function showCueNotification(options: CueOptions): Promise<void> {
     vibrate: options.vibrate,
     icon: assetUrl('icons/icon-192.png'),
     badge: assetUrl('icons/icon-192.png'),
+    // Explicit absolute target for notificationclick: some Android builds open
+    // a blank SW context when openWindow() only gets a bare relative path.
+    data: { url: assetUrl('./') },
     body: options.body,
-  } as NotificationOptions & { renotify: boolean };
+  } as NotificationOptions & { renotify: boolean; data: { url: string } };
 
   try {
     const registration = await Promise.race([
