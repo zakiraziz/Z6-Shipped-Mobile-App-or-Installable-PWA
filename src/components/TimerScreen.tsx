@@ -1,18 +1,21 @@
-import { useState } from 'react';
-import { BellOff, Check, Pause, Play, RotateCcw, SkipForward, Square, X, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BellOff, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } from 'lucide-react';
 import { formatClock } from '../lib/format';
+import { cueCountdown } from '../lib/cues';
 import { getNotificationState, requestNotifyPermissionOnce } from '../lib/notify';
 import { presetSummary, presetTotalMs } from '../lib/presets';
+import { buildShareUrl } from '../lib/presets-io';
 import { primeAudio } from '../lib/sound';
 import { usePersistentState } from '../hooks/usePersistentState';
 import { useAppState } from '../state';
+import { SessionSummary } from './SessionSummary';
 import { TimerDisplay } from './TimerDisplay';
 
 const secondaryButton =
   'flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 transition active:scale-95 disabled:opacity-30 disabled:active:scale-100';
 
 export function TimerScreen() {
-  const { presets, activePreset, selectPreset, timer } = useAppState();
+  const { presets, activePreset, selectPreset, timer, settings, toggleSetting } = useAppState();
   const { status } = timer;
 
   const [notifyState, setNotifyState] = useState<NotificationPermission | 'unsupported'>(() =>
@@ -22,34 +25,85 @@ export function TimerScreen() {
     'beep.notify.hint-dismissed',
     false
   );
+  /** #1: 3-2-1 get-ready countdown runs before the engine starts. */
+  const [getReady, setGetReady] = useState<number | null>(null);
+  const [shareStatus, setShareStatus] = useState('');
 
-  const locked = status === 'running' || status === 'paused';
+  const locked = status === 'running' || status === 'paused' || getReady !== null;
 
   const primaryLabel =
-    status === 'running'
-      ? 'Pause timer'
-      : status === 'paused'
-        ? 'Resume timer'
-        : status === 'finished'
-          ? 'Start again'
-          : 'Start timer';
+    getReady !== null
+      ? 'Cancel countdown'
+      : status === 'running'
+        ? 'Pause timer'
+        : status === 'paused'
+          ? 'Resume timer'
+          : status === 'finished'
+            ? 'Start again'
+            : 'Start timer';
+
+  // Tick the countdown: beep on 3/2/1, then hand over to the engine.
+  useEffect(() => {
+    if (getReady === null) return;
+    if (getReady === 0) {
+      setGetReady(null);
+      timer.start();
+      return;
+    }
+    cueCountdown(settings);
+    const id = window.setTimeout(() => setGetReady((n) => (n === null ? null : n - 1)), 1000);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getReady]);
+
+  // Switching preset mid-countdown would start the wrong workout.
+  useEffect(() => {
+    setGetReady(null);
+  }, [activePreset.id]);
 
   const handlePrimary = () => {
     primeAudio(); // gesture → unlock Web Audio (incl. iOS activation blip)
     // First Start only, remembered, never nags — result drives the hint below.
     void requestNotifyPermissionOnce().then(setNotifyState);
+    if (getReady !== null) {
+      setGetReady(null); // second tap cancels the countdown
+      return;
+    }
+    if (status === 'idle' || status === 'finished') {
+      setGetReady(3);
+      return;
+    }
     timer.toggle();
+  };
+
+  const handleShare = async () => {
+    const url = buildShareUrl(activePreset);
+    const text = `${activePreset.name}: ${presetSummary(activePreset)}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Beep — ${activePreset.name}`, text, url });
+        setShareStatus('Shared!');
+      } else {
+        await navigator.clipboard.writeText(url);
+        setShareStatus('Link copied');
+      }
+    } catch {
+      setShareStatus('Sharing cancelled');
+    }
+    window.setTimeout(() => setShareStatus(''), 2500);
   };
 
   // Announced to screen readers on phase/status changes (not every tick).
   const announcement =
-    status === 'idle'
-      ? `${activePreset.name} ready. ${activePreset.rounds} rounds.`
-      : status === 'finished'
-        ? 'Session complete. Saved to history.'
-        : status === 'paused'
-          ? `Paused. ${timer.segment.label}, round ${timer.round} of ${timer.rounds}.`
-          : `${timer.segment.label} started. Round ${timer.round} of ${timer.rounds}.`;
+    getReady !== null
+      ? `Get ready. ${getReady}.`
+      : status === 'idle'
+        ? `${activePreset.name} ready. ${activePreset.rounds} rounds.`
+        : status === 'finished'
+          ? 'Session complete. Saved to history.'
+          : status === 'paused'
+            ? `Paused. ${timer.segment.label}, round ${timer.round} of ${timer.rounds}.`
+            : `${timer.segment.label} started. Round ${timer.round} of ${timer.rounds}.`;
 
   return (
     <div>
@@ -66,7 +120,7 @@ export function TimerScreen() {
               key={preset.id}
               onClick={() => selectPreset(preset.id)}
               disabled={locked}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`flex min-h-[44px] shrink-0 items-center rounded-full border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 isActive
                   ? 'border-lime-300 bg-lime-400 font-semibold text-slate-950'
                   : 'border-slate-700 bg-slate-900 text-slate-300'
@@ -78,19 +132,52 @@ export function TimerScreen() {
         })}
       </div>
 
-      <TimerDisplay
-        status={timer.status}
-        segment={timer.segment}
-        remainingMs={timer.segmentRemainingMs}
-        segmentProgress={timer.segmentProgress}
-        totalProgress={timer.totalProgress}
-        totalRemainingMs={timer.totalRemainingMs}
-        round={timer.round}
-        rounds={timer.rounds}
-      />
+      {/* #3: the whole ring is one big tap target (start / pause / resume) */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={primaryLabel}
+        onClick={handlePrimary}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handlePrimary();
+          }
+        }}
+        className="relative cursor-pointer rounded-3xl outline-none focus-visible:ring-2 focus-visible:ring-lime-400/60"
+      >
+        <TimerDisplay
+          status={timer.status}
+          segment={timer.segment}
+          nextSegment={timer.segments[timer.segmentIndex + 1] ?? null}
+          remainingMs={timer.segmentRemainingMs}
+          segmentProgress={timer.segmentProgress}
+          totalProgress={timer.totalProgress}
+          totalRemainingMs={timer.totalRemainingMs}
+          round={timer.round}
+          rounds={timer.rounds}
+        />
+
+        {/* #1: GET READY overlay — the engine stays idle until it hits 0 */}
+        {getReady !== null && (
+          <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center">
+            <div className="flex h-72 w-72 flex-col items-center justify-center gap-3 rounded-full bg-slate-950/95 backdrop-blur-sm">
+              <span className="text-xs font-bold tracking-[0.3em] text-slate-400">GET READY</span>
+              <span className="text-[96px] font-bold leading-none tabular-nums text-lime-300">
+                {getReady}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* controls */}
-      <div className="mt-7 flex items-center justify-center gap-7">
+      {/* #12: left-handed mode swaps the secondary controls' sides */}
+      <div
+        className={`mt-7 flex items-center justify-center gap-7 ${
+          settings.leftHanded ? 'flex-row-reverse' : ''
+        }`}
+      >
         <button
           onClick={timer.reset}
           disabled={status === 'idle'}
@@ -133,11 +220,8 @@ export function TimerScreen() {
         </div>
       )}
 
-      {status === 'finished' && (
-        <p className="mt-5 flex items-center justify-center gap-2 text-sm text-emerald-300">
-          <Check size={16} /> Session saved to history
-        </p>
-      )}
+      {/* #5: the payoff screen — what the session actually was */}
+      {status === 'finished' && <SessionSummary />}
 
       {/* Denied-permission UX: say it once, explain the fallback, allow dismiss */}
       {notifyState === 'denied' && !notifyHintDismissed && (
@@ -157,12 +241,52 @@ export function TimerScreen() {
         </div>
       )}
 
-      {/* active preset summary + offline note */}
+      {/* active preset + share + preferences */}
       <div className="mt-7 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-        <p className="text-sm font-semibold">{activePreset.name}</p>
-        <p className="mt-0.5 text-sm text-slate-400">
-          {presetSummary(activePreset)} · {formatClock(presetTotalMs(activePreset))} total
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{activePreset.name}</p>
+            <p className="mt-0.5 text-sm text-slate-400">
+              {presetSummary(activePreset)} · {formatClock(presetTotalMs(activePreset))} total
+            </p>
+          </div>
+          <button
+            onClick={handleShare}
+            className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 active:scale-95"
+          >
+            <Share2 size={13} /> Share
+          </button>
+        </div>
+        {shareStatus && (
+          <p className="mt-1 text-xs text-lime-300" role="status">
+            {shareStatus}
+          </p>
+        )}
+
+        {/* #9 #10 #11 #12 — preferences live where they're used */}
+        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-800 pt-3">
+          <PrefChip
+            label="Big numbers"
+            on={settings.bigNumbers}
+            onClick={() => toggleSetting('bigNumbers')}
+          />
+          <PrefChip
+            label="Halfway chime"
+            on={settings.halfwayChime}
+            onClick={() => toggleSetting('halfwayChime')}
+          />
+          <PrefChip
+            label="Voice cues"
+            on={settings.voice}
+            onClick={() => toggleSetting('voice')}
+          />
+          <PrefChip
+            label="Left-handed"
+            on={settings.leftHanded}
+            onClick={() => toggleSetting('leftHanded')}
+          />
+        </div>
+
         <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-slate-500">
           <Zap size={14} className="mt-0.5 shrink-0 text-lime-300" />
           No connection needed — the timer, presets and history live on this device.
@@ -170,5 +294,23 @@ export function TimerScreen() {
         </p>
       </div>
     </div>
+  );
+}
+
+function PrefChip({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={on}
+      className={`flex min-h-[40px] items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-95 ${
+        on ? 'border-lime-400/70 bg-lime-400/10 text-lime-300' : 'border-slate-700 text-slate-400'
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-lime-300' : 'bg-slate-600'}`}
+        aria-hidden="true"
+      />
+      {label}
+    </button>
   );
 }

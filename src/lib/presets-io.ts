@@ -156,3 +156,9 @@ export function decodeSharedPreset(param: string): Preset | null {
     return null;
   }
 }
+
+/** Absolute URL for sharing one preset: `<page>?p=<base64url>`. */
+export function buildShareUrl(preset: Preset): string {
+  const base = window.location.href.split(/[?#]/)[0];
+  return `${base}?p=${encodeSharedPreset(preset)}`;
+}
