@@ -8,17 +8,27 @@ import type { HistoryEntry, Preset, Settings } from './types';
 /** newest 200 sessions are kept */
 const MAX_HISTORY = 200;
 
+/** Defaults merged over persisted settings so old saves gain new flags. */
+export const DEFAULT_SETTINGS: Settings = {
+  sound: true,
+  vibrate: true,
+  halfwayChime: false,
+  bigNumbers: false,
+  voice: false,
+  leftHanded: false,
+};
+
 type AppState = {
   presets: Preset[];
   activePreset: Preset;
   selectPreset: (id: string) => void;
   savePreset: (preset: Preset) => void;
   deletePreset: (id: string) => void;
+  moveCustomPreset: (id: string, direction: -1 | 1) => void;
   history: HistoryEntry[];
   clearHistory: () => void;
   settings: Settings;
-  toggleSound: () => void;
-  toggleVibrate: () => void;
+  toggleSetting: (key: keyof Settings) => void;
   timer: TimerApi;
 };
 
@@ -31,10 +41,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     BUILTIN_PRESETS[0].id
   );
   const [history, setHistory] = usePersistentState<HistoryEntry[]>('beep.history.v1', []);
-  const [settings, setSettings] = usePersistentState<Settings>('beep.settings.v1', {
-    sound: true,
-    vibrate: true,
-  });
+  const [settings, setSettings] = usePersistentState<Settings>('beep.settings.v1', DEFAULT_SETTINGS);
+  // Older saves predate newer flags — merge so every key always exists.
+  const mergedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...settings }), [settings]);
 
   const presets = useMemo(() => [...BUILTIN_PRESETS, ...customPresets], [customPresets]);
   const activePreset = presets.find((preset) => preset.id === activePresetId) ?? presets[0];
@@ -63,6 +72,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [setCustomPresets, setActivePresetId]
   );
 
+  /** Touch + keyboard friendly reordering of custom presets (order persists). */
+  const moveCustomPreset = useCallback(
+    (id: string, direction: -1 | 1) => {
+      setCustomPresets((current) => {
+        const index = current.findIndex((item) => item.id === id);
+        const target = index + direction;
+        if (index < 0 || target < 0 || target >= current.length) return current;
+        const next = [...current];
+        const moved = next[index];
+        next[index] = next[target];
+        next[target] = moved;
+        return next;
+      });
+    },
+    [setCustomPresets]
+  );
+
   const addHistory = useCallback(
     (entry: HistoryEntry) =>
       setHistory((current) => [entry, ...current].slice(0, MAX_HISTORY)),
@@ -86,14 +112,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [addHistory, activePreset]
   );
 
-  const timer = useIntervalTimer(activePreset, settings, handleTimerComplete);
+  const timer = useIntervalTimer(activePreset, mergedSettings, handleTimerComplete);
 
-  const toggleSound = useCallback(
-    () => setSettings((current) => ({ ...current, sound: !current.sound })),
-    [setSettings]
-  );
-  const toggleVibrate = useCallback(
-    () => setSettings((current) => ({ ...current, vibrate: !current.vibrate })),
+  const toggleSetting = useCallback(
+    (key: keyof Settings) => setSettings((current) => ({ ...current, [key]: !current[key] })),
     [setSettings]
   );
 
@@ -104,11 +126,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       selectPreset,
       savePreset,
       deletePreset,
+      moveCustomPreset,
       history,
       clearHistory,
-      settings,
-      toggleSound,
-      toggleVibrate,
+      settings: mergedSettings,
+      toggleSetting,
       timer,
     }),
     [
@@ -117,11 +139,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       selectPreset,
       savePreset,
       deletePreset,
+      moveCustomPreset,
       history,
       clearHistory,
-      settings,
-      toggleSound,
-      toggleVibrate,
+      mergedSettings,
+      toggleSetting,
       timer,
     ]
   );

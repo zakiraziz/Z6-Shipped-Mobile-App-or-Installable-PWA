@@ -38,4 +38,12 @@ export type HistoryEntry = {
 export type Settings = {
   sound: boolean;
   vibrate: boolean;
+  /** fire a cue at the midpoint of each segment (default off) */
+  halfwayChime: boolean;
+  /** oversized digits for across-the-room viewing */
+  bigNumbers: boolean;
+  /** speak phase/round changes via speechSynthesis */
+  voice: boolean;
+  /** swap skip/reset sides for left-handed thumb reach */
+  leftHanded: boolean;
 };

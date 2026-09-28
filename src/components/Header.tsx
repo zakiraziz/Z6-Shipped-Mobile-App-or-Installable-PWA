@@ -6,7 +6,7 @@ const iconButton =
   'rounded-lg p-2 transition active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-lime-400/60';
 
 export function Header() {
-  const { settings, toggleSound, toggleVibrate } = useAppState();
+  const { settings, toggleSetting } = useAppState();
   const online = useOnlineStatus();
 
   return (
@@ -34,7 +34,7 @@ export function Header() {
             </span>
           )}
           <button
-            onClick={toggleSound}
+            onClick={() => toggleSetting('sound')}
             aria-label={settings.sound ? 'Mute beeps' : 'Unmute beeps'}
             aria-pressed={settings.sound}
             className={`${iconButton} ${settings.sound ? 'bg-slate-800 text-slate-100' : 'text-slate-500'}`}
@@ -42,7 +42,7 @@ export function Header() {
             {settings.sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
           <button
-            onClick={toggleVibrate}
+            onClick={() => toggleSetting('vibrate')}
             aria-label={settings.vibrate ? 'Disable vibration' : 'Enable vibration'}
             aria-pressed={settings.vibrate}
             className={`${iconButton} ${settings.vibrate ? 'bg-slate-800 text-slate-100' : 'text-slate-500'}`}

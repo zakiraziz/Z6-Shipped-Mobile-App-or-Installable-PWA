@@ -107,3 +107,52 @@ export function parsePresetFile(text: string): ImportResult {
   }
   return { ok: true, imported, skipped, notes };
 }
+
+/* ---------- share-a-preset-as-a-link (?p=<base64url>) ---------- */
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(param: string): Uint8Array {
+  const padded = param.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+/** Encode one preset into a URL-safe token (UTF-8 safe). */
+export function encodeSharedPreset(preset: Preset): string {
+  const json = JSON.stringify({ ...preset, builtin: false });
+  return toBase64Url(new TextEncoder().encode(json));
+}
+
+/** Decode a ?p= token — validated + clamped exactly like file import. */
+export function decodeSharedPreset(param: string): Preset | null {
+  try {
+    const record: unknown = JSON.parse(new TextDecoder().decode(fromBase64Url(param)));
+    if (typeof record !== 'object' || record === null) return null;
+    const r = record as Record<string, unknown>;
+    const name = typeof r.name === 'string' ? r.name.trim().slice(0, 40) : '';
+    const workSec = Math.round(Number(r.workSec));
+    const restSec = Math.round(Number(r.restSec));
+    const rounds = Math.round(Number(r.rounds));
+    if (!name || !Number.isFinite(workSec) || !Number.isFinite(restSec) || !Number.isFinite(rounds)) {
+      return null;
+    }
+    const id = typeof r.id === 'string' && r.id.length > 0 && !BUILTIN_IDS.has(r.id) ? r.id : uid();
+    return {
+      id,
+      name,
+      workSec: Math.min(3600, Math.max(5, workSec)),
+      restSec: Math.min(3600, Math.max(0, restSec)),
+      rounds: Math.min(99, Math.max(1, rounds)),
+      builtin: false,
+    };
+  } catch {
+    return null;
+  }
+}

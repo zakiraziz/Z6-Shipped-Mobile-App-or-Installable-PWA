@@ -6,7 +6,34 @@ export const BUILTIN_PRESETS: Preset[] = [
   { id: 'boxing', name: 'Boxing rounds', workSec: 180, restSec: 60, rounds: 5, builtin: true },
   { id: 'pomodoro', name: 'Pomodoro', workSec: 1500, restSec: 300, rounds: 4, builtin: true },
   { id: 'sprint', name: 'Sprint 30/90', workSec: 30, restSec: 90, rounds: 6, builtin: true },
+  { id: 'emom', name: 'EMOM 10', workSec: 40, restSec: 20, rounds: 10, builtin: true },
 ];
+
+/**
+ * Split a session (up to elapsedMs) into work time, rest time and fully
+ * completed work rounds — powers the end-of-session summary.
+ */
+export function splitSession(
+  segments: Segment[],
+  elapsedMs: number
+): { workMs: number; restMs: number; roundsCompleted: number } {
+  let workMs = 0;
+  let restMs = 0;
+  let roundsCompleted = 0;
+  let acc = 0;
+  for (const segment of segments) {
+    const consumed = Math.max(0, Math.min(segment.durationMs, elapsedMs - acc));
+    if (segment.kind === 'work') {
+      workMs += consumed;
+      if (consumed >= segment.durationMs) roundsCompleted += 1;
+    } else {
+      restMs += consumed;
+    }
+    acc += segment.durationMs;
+    if (acc >= elapsedMs) break;
+  }
+  return { workMs, restMs, roundsCompleted };
+}
 
 /** Work/rest segments for a preset. The final round has no trailing rest. */
 export function buildSegments(preset: Preset): Segment[] {

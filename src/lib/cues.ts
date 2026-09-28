@@ -1,7 +1,7 @@
 import type { Segment, Settings } from '../types';
 import { formatClock } from './format';
 import { clearCueNotifications, showCueNotification } from './notify';
-import { playCountdown, playFinish, playPhaseChange } from './sound';
+import { playCountdown, playFinish, playHalfway, playPhaseChange } from './sound';
 
 /** Distinct haptics per phase: work = 3 short pulses, rest = 1 long pulse. */
 const PULSE: Record<Segment['kind'], number[]> = {
