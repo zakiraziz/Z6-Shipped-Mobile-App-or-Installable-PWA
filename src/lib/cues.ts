@@ -24,6 +24,19 @@ function screenHidden(): boolean {
   return document.visibilityState !== 'visible';
 }
 
+/** Eyes-free use: speak phase changes when the user enabled voice cues. */
+function announce(text: string, settings: Settings): void {
+  if (!settings.voice || !('speechSynthesis' in window)) return;
+  try {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    window.speechSynthesis.cancel(); // never queue stale phases
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    /* speech unavailable — stay silent */
+  }
+}
+
 /** Last 3 seconds of a segment. */
 export function cueCountdown(settings: Settings): void {
   if (settings.sound) playCountdown();
@@ -56,6 +69,10 @@ export type PhaseCue = {
 export function cuePhaseChange(settings: Settings, phase: PhaseCue): void {
   if (settings.sound) playPhaseChange();
   if (settings.vibrate) buzz(PULSE[phase.next.kind]);
+  announce(
+    `${phase.next.kind === 'work' ? 'Work' : 'Rest'}, round ${phase.next.round} of ${phase.rounds}`,
+    settings
+  );
   if (!screenHidden() && !phase.forceNotify) return;
 
   const missed = (phase.missed ?? 1) > 1 ? ` · ${phase.missed} phases passed` : '';
@@ -72,6 +89,7 @@ export type FinishCue = { presetName: string; elapsedMs: number; completed: bool
 export function cueFinish(settings: Settings, finish: FinishCue): void {
   if (settings.sound) playFinish();
   if (settings.vibrate) buzz(FINISH_PATTERN);
+  announce('Session complete', settings);
 
   if (!screenHidden()) {
     clearCueNotifications();
@@ -84,4 +102,10 @@ export function cueFinish(settings: Settings, finish: FinishCue): void {
     } · saved to history`,
     vibrate: settings.vibrate ? [...FINISH_PATTERN] : undefined,
   });
+}
+
+/** Midpoint of a segment — the optional "keep going" cue (off by default). */
+export function cueHalfway(settings: Settings): void {
+  if (settings.sound) playHalfway();
+  if (settings.vibrate) buzz([40, 60, 40]);
 }

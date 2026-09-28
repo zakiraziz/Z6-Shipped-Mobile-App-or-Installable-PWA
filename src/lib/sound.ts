@@ -86,3 +86,9 @@ export function playFinish(): void {
   tone(1180, 300, 340);
 }
 
+/** Distinct two-note chirp for the optional halfway cue. */
+export function playHalfway(): void {
+  tone(1200, 80);
+  tone(1600, 100, 95);
+}
+

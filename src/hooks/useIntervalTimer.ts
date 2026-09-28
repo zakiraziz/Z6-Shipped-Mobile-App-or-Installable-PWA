@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { cueCountdown, cueFinish, cuePhaseChange } from '../lib/cues';
+import { cueCountdown, cueFinish, cueHalfway, cuePhaseChange } from '../lib/cues';
 import { resumeAudio } from '../lib/sound';
 import { buildSegments, presetTotalMs } from '../lib/presets';
 import type { Preset, Settings, TimerStatus } from '../types';
@@ -160,6 +160,17 @@ export function useIntervalTimer(
           const secAfter = Math.ceil(after / 1000);
           if (after > 0 && secAfter < secBefore && secAfter <= 3) {
             cueCountdown(settingsRef.current);
+          }
+          // Optional halfway chime: crossing the segment's midpoint.
+          const segmentStart = prev - from.offset;
+          const midpoint = segmentStart + duration / 2;
+          if (
+            settingsRef.current.halfwayChime &&
+            duration > 0 &&
+            prev < midpoint &&
+            midpoint <= ms
+          ) {
+            cueHalfway(settingsRef.current);
           }
         }
       }
