@@ -170,7 +170,7 @@ The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci
 
 > **Deliberate non-goals:** no Lighthouse CI — the PWA audit category was removed in Lighthouse 12 and perf scores on shared runners are flaky, so the smoke test asserts installability/offline behaviour directly instead. No Playwright either: the puppeteer-core harness covers the same ground with zero extra dependencies. Chrome is resolved per platform (`CHROME_PATH` env overrides) rather than version-pinned.
 
-> **War story (why the pristine-`dist` assert exists):** _Beep cues you even when your phone is locked in your pocket: a precise wake at each phase boundary, a persistent notification with `requireInteraction` and a working `notificationclick` (the `data.url` fallback was a real Android silent-failure caught and fixed), and a catch-up summary if the OS throttled the timer while you slept. My own cache-bump test once shipped `v999` to prod — the deploy is now gated on a byte-level pristine-`dist` assert (checksums before vs. after tests) so it can't happen again._
+> **War story (why the pristine-`dist` assert exists):** _Beep cues you even when your phone is locked in your pocket — precise boundary wakes, persistent notifications with a working `notificationclick`, catch-up summaries after OS throttling. My own cache-bump test once shipped `v999` to prod; the deploy is now gated on a byte-identical `dist/` checksum, because the first version of that gate I wrote would have passed vacuously on a gitignored path._
 
 ## If you get stuck
 
