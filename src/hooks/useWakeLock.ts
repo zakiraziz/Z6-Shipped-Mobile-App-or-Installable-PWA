@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 
-type WakeLockSentinelLike = { release: () => Promise<void> };
+type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
 
 /**
  * Keeps the screen on while a session runs (Wake Lock API — Chrome/Edge on
- * Android, desktop Chrome). Where unsupported this is a silent no-op, and the
- * sentinel is re-acquired if the tab comes back to the foreground.
+ * Android, desktop Chrome). The browser RELEASES the sentinel when the tab is
+ * hidden or the screen locks (iOS Safari always does on background) — so the
+ * visibility handler re-requests whenever the old one is no longer held.
+ * Where unsupported this is a silent no-op.
  */
 export function useWakeLock(active: boolean): void {
   const sentinelRef = useRef<WakeLockSentinelLike | null>(null);
@@ -17,7 +19,11 @@ export function useWakeLock(active: boolean): void {
     };
 
     const acquire = async () => {
-      if (!nav.wakeLock || cancelled || sentinelRef.current) return;
+      if (!nav.wakeLock || cancelled) return;
+      // Already held → nothing to do. Released (browser took it back) → fall
+      // through and re-request; keeping a stale ref here was a real bug.
+      if (sentinelRef.current && !sentinelRef.current.released) return;
+      sentinelRef.current = null;
       try {
         sentinelRef.current = await nav.wakeLock.request('screen');
       } catch {

@@ -16,8 +16,12 @@ const FALLBACK_SEGMENT: Segment = { kind: 'work', label: 'Work', round: 1, durat
  * Main-loop cadence. A plain interval (not rAF) keeps firing while the tab is
  * backgrounded, and every tick replays ALL boundaries crossed since the last
  * one — so a throttled or slept phone catches up instead of missing cues.
+ * Additionally each tick arms a precise setTimeout at the next boundary, so a
+ * wake lands exactly on the phase change even if the interval chain throttles.
  */
 const TICK_MS = 200;
+/** Gap after which crossed phases count as "the user wasn't watching". */
+const CATCHUP_GAP_MS = 5000;
 
 /**
  * The timer engine. Elapsed time is derived from timestamps
@@ -44,6 +48,7 @@ export function useIntervalTimer(
 
   const anchorRef = useRef({ at: 0, base: 0 });
   const prevRef = useRef(0);
+  const lastTickAtRef = useRef(0);
   const doneRef = useRef(false);
 
   const locate = useCallback(
@@ -96,8 +101,27 @@ export function useIntervalTimer(
   useEffect(() => {
     if (status !== 'running') return;
 
+    let boundaryTimeout = 0;
+
+    /** Precise wake at the next segment boundary (see TICK_MS note above). */
+    const armBoundaryWake = (fromMs: number) => {
+      let acc = 0;
+      let next = totalMs;
+      for (let i = 0; i < segments.length - 1; i += 1) {
+        acc += segments[i].durationMs;
+        if (acc > fromMs) {
+          next = acc;
+          break;
+        }
+      }
+      window.clearTimeout(boundaryTimeout);
+      boundaryTimeout = window.setTimeout(tick, Math.max(1, next - fromMs));
+    };
+
     const tick = () => {
       const now = performance.now();
+      const gap = lastTickAtRef.current === 0 ? 0 : now - lastTickAtRef.current;
+      lastTickAtRef.current = now;
       const ms = Math.min(anchorRef.current.base + (now - anchorRef.current.at), totalMs);
       const prev = prevRef.current;
 
@@ -113,13 +137,17 @@ export function useIntervalTimer(
 
         if (crossed.length > 0) {
           // Coalesce: one cue for the latest boundary (tag+renotify replaces
-          // any earlier notification — no spam after a long sleep).
+          // any earlier notification — no spam after a long sleep). A large
+          // tick gap means the crossings happened while throttled/suspended:
+          // force the notification even if we're visible again, because the
+          // user demonstrably missed those cues.
           const lastIndex = crossed[crossed.length - 1];
           cuePhaseChange(settingsRef.current, {
             endedKind: segments[lastIndex - 1].kind,
             next: segments[lastIndex],
             rounds: preset.rounds,
             missed: crossed.length,
+            forceNotify: gap > CATCHUP_GAP_MS,
           });
         } else {
           // Same segment: fire countdown beeps when crossing 3/2/1 seconds.
@@ -139,12 +167,19 @@ export function useIntervalTimer(
       prevRef.current = ms;
       setElapsed(ms);
 
-      if (ms >= totalMs) complete({ completed: true, elapsedMs: totalMs });
+      if (ms >= totalMs) {
+        complete({ completed: true, elapsedMs: totalMs });
+        return;
+      }
+      armBoundaryWake(ms);
     };
 
     tick(); // immediate first frame so Start feels instant
     const intervalId = window.setInterval(tick, TICK_MS);
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(boundaryTimeout);
+    };
   }, [status, totalMs, segments, locate, complete, preset.rounds]);
 
   const start = useCallback(() => {
@@ -158,6 +193,7 @@ export function useIntervalTimer(
     }
     anchorRef.current = { at: performance.now(), base };
     prevRef.current = base;
+    lastTickAtRef.current = performance.now();
     setStatus('running');
   }, [status, elapsed, totalMs]);
 

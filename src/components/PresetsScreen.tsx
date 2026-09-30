@@ -40,13 +40,22 @@ export function PresetsScreen() {
     event.target.value = ''; // allow re-selecting the same file
     if (!file) return;
     try {
-      const parsed = parsePresetFile(await file.text());
-      if (!parsed) {
-        setIoStatus('Could not read that file — expected a Beep presets JSON.');
+      const result = parsePresetFile(await file.text());
+      if (!result.ok) {
+        setIoStatus(`Import failed: ${result.error}.`);
         return;
       }
-      parsed.forEach(savePreset);
-      setIoStatus(`Imported ${parsed.length} preset${parsed.length === 1 ? '' : 's'}.`);
+      result.imported.forEach(savePreset);
+      // Surface skips and unknown fields — never drop entries silently.
+      const notes =
+        result.notes.length > 0
+          ? ` — ${result.notes.slice(0, 2).join('; ')}${result.notes.length > 2 ? '…' : ''}`
+          : '';
+      setIoStatus(
+        `Imported ${result.imported.length}${
+          result.skipped ? ` (skipped ${result.skipped})` : ''
+        }${notes}.`
+      );
     } catch {
       setIoStatus('Could not read that file.');
     }

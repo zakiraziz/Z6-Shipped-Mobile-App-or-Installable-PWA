@@ -17,24 +17,25 @@
 ## Why this idea
 - **Focused and useful:** one job — precise work/rest intervals — done properly (progress ring, round counter, cues, history).
 - **Offline is the core feature, not a checkbox:** the entire app is client-side. Presets and history live in `localStorage`, beeps are synthesised with Web Audio (no audio files), the shell is precached by a hand-written service worker.
-- **Uses real device features:** Wake Lock (screen stays on while a session runs), Web Notifications for locked-screen cues, Vibration API cues, `beforeinstallprompt` / Add-to-Home-Screen, full-screen standalone display.
+- **Uses real device features:** Wake Lock (screen stays on while a session runs, re-acquired on return — iOS releases it on background), Web Notifications for locked-screen cues, Vibration API cues, `beforeinstallprompt` / Add-to-Home-Screen, full-screen standalone display.
 
 ## Features
 
 **Core**
 - Interval engine: work/rest segments, round counter, ring + total progress, pause / resume / skip / reset / finish
 - **Background cues that can't be missed:** when the screen isn't visible, every phase change and the finish fire a persistent service-worker notification (`requireInteraction`, `tag` + `renotify` → exactly one cue at a time, replaced per phase). Permission is requested once, on the first Start tap — never nags.
-- **Drift-free catch-up scheduler:** the engine runs on absolute timestamps with a plain interval (rAF stops entirely when backgrounded) and *replays every boundary crossed* — after the OS throttles a slept phone, cues fire with a "N phases passed" summary instead of vanishing silently
+- **Drift-free catch-up scheduler:** the engine runs on absolute timestamps with a plain interval (rAF stops entirely when backgrounded) and *replays every boundary crossed* — after the OS throttles a slept phone, cues fire with a "N phases passed" summary instead of vanishing silently. Each tick also arms a precise `setTimeout` at the next boundary (an exact wake, not a polled guess), and if a >5 s gap contained crossed phases the catch-up notification is forced **even after you unlock straight into the app** — those cues were physically missed, so the notification says so
 - 5 built-in presets (Tabata, HIIT 45/15, Boxing rounds, Pomodoro, Sprint 30/90) + create / edit / delete custom presets
-- **Presets export/import as JSON** — share workouts, back up, move them between devices (import validates + clamps every field)
+- **Presets export/import as JSON** — share workouts, back up, move them between devices (import validates + clamps every field and **reports skipped entries and unknown fields explicitly** — nothing is dropped silently)
 - Session history with stats (sessions, this week, total time) — stored on the device (`localStorage`, `navigator.storage.persist()` requested so it survives storage pressure)
 - Countdown beeps for 3/2/1, a distinct Web Audio fanfare per phase, and **distinct haptics per phase** (work = 3 short pulses, rest = 1 long) plus sound / vibration toggles in the header
 - Screen-reader announcements on every phase/status change (`aria-live="assertive"`)
+- Denied-permission UX: the Timer screen says **once** (dismissible) that notifications are off and what still works — no silent failure
 - "Offline" pill appears the moment the network drops
 
 **Installable PWA**
 - Web app manifest (`display_override`, stable `id`) + generated icon set (any + maskable) + standalone display
-- Hand-written service worker: network-first HTML, cache-first assets, runtime caching, versioned cache cleanup (`npm run bump:cache`), and `notificationclick` → focuses the open app
+- Hand-written service worker: network-first HTML, cache-first assets, runtime caching, versioned cache cleanup (`npm run bump:cache`), and `notificationclick` → focuses the open app (falls back to the notification's absolute `data.url`, the Android blank-window trap)
 - Update toast ("New version available → Refresh") when a new build is published
 - Install banner: native **Install** button on Chromium, Share → Add to Home Screen on iOS — dismissal is remembered and the banner re-offers after 5 sessions
 - `prefers-reduced-motion` + `prefers-contrast` support, and a `404.html` SPA insurance redirect for GitHub Pages
@@ -135,7 +136,7 @@ Any other static host works too — the build uses a relative base (`base: './'`
 
 ## Automated checks — `npm run test:smoke`
 
-13 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · manifest installable · service worker active · start + finish a session (this also exercises the notification-permission flow) · history persisted to `localStorage` · export/import controls present · **server killed → app reloads from cache → timer still runs** · and it regenerates the screenshots above.
+16 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · manifest installable · service worker active · start + finish a session (this also exercises the notification-permission flow) · history persisted to `localStorage` · export/import controls present · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
 
 The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci.yml`, screenshots uploaded as artifacts) and gates the Pages deploy.
 

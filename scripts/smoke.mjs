@@ -14,7 +14,7 @@
  * Screenshots for the README are written to ../screenshots.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -62,7 +62,7 @@ function stopServer(child) {
   }
 }
 
-const server = startServer();
+let server = startServer();
 await sleep(4000);
 
 const browser = await puppeteer.launch({
@@ -160,6 +160,54 @@ try {
   await page.screenshot({ path: join(SHOTS, 'history-screen.png') });
 
   check('no console/page errors (online phase)', errors.length === 0, errors.join(' | '));
+
+  // ---- 7. SW UPDATE FLOW -------------------------------------------
+  // Simulates a release: changed asset in dist/ + new sw.js bytes (what
+  // `npm run bump:cache` + rebuild produce). The update toast must appear,
+  // and clicking Refresh must serve the NEW manifest without a hard reload —
+  // this is exactly the stale-cache path a bump:cache release goes through.
+  const manifestPath = join(ROOT, 'dist', 'manifest.webmanifest');
+  const swDistPath = join(ROOT, 'dist', 'sw.js');
+  writeFileSync(
+    manifestPath,
+    readFileSync(manifestPath, 'utf8').replace('"short_name": "Beep"', '"short_name": "Beep!"')
+  );
+  writeFileSync(
+    swDistPath,
+    readFileSync(swDistPath, 'utf8').replace(/const VERSION = 'v\d+';/, "const VERSION = 'v999';")
+  );
+  stopServer(server);
+  server = startServer();
+  await sleep(4000);
+
+  await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
+  let toastShown = true;
+  try {
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('button')].some((b) => (b.textContent || '').includes('Refresh')),
+      { timeout: 10000 }
+    );
+  } catch {
+    toastShown = false;
+  }
+  check('update toast appears when sw.js bytes change', toastShown);
+
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }),
+    page.evaluate(() => {
+      [...document.querySelectorAll('button')]
+        .find((b) => (b.textContent || '').includes('Refresh'))
+        ?.click();
+    }),
+  ]);
+  const updatedManifest = await page.evaluate(() =>
+    fetch('manifest.webmanifest').then((r) => r.text())
+  );
+  check(
+    'changed manifest served after toast Refresh (no hard reload)',
+    updatedManifest.includes('"Beep!"')
+  );
+  check('no console/page errors (through update phase)', errors.length === 0, errors.join(' | '));
 
   // ---- 6. OFFLINE: kill the server, the app must keep working -------
   await page.goto(BASE, { waitUntil: 'networkidle0', timeout: 20000 });

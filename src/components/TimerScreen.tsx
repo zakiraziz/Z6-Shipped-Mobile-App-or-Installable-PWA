@@ -1,8 +1,10 @@
-import { Check, Pause, Play, RotateCcw, SkipForward, Square, Zap } from 'lucide-react';
+import { useState } from 'react';
+import { BellOff, Check, Pause, Play, RotateCcw, SkipForward, Square, X, Zap } from 'lucide-react';
 import { formatClock } from '../lib/format';
-import { requestNotifyPermissionOnce } from '../lib/notify';
+import { getNotificationState, requestNotifyPermissionOnce } from '../lib/notify';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { primeAudio } from '../lib/sound';
+import { usePersistentState } from '../hooks/usePersistentState';
 import { useAppState } from '../state';
 import { TimerDisplay } from './TimerDisplay';
 
@@ -12,6 +14,14 @@ const secondaryButton =
 export function TimerScreen() {
   const { presets, activePreset, selectPreset, timer } = useAppState();
   const { status } = timer;
+
+  const [notifyState, setNotifyState] = useState<NotificationPermission | 'unsupported'>(() =>
+    getNotificationState()
+  );
+  const [notifyHintDismissed, setNotifyHintDismissed] = usePersistentState(
+    'beep.notify.hint-dismissed',
+    false
+  );
 
   const locked = status === 'running' || status === 'paused';
 
@@ -26,7 +36,8 @@ export function TimerScreen() {
 
   const handlePrimary = () => {
     primeAudio(); // gesture → unlock Web Audio (incl. iOS activation blip)
-    void requestNotifyPermissionOnce(); // first Start only; remembered, never nags
+    // First Start only, remembered, never nags — result drives the hint below.
+    void requestNotifyPermissionOnce().then(setNotifyState);
     timer.toggle();
   };
 
@@ -126,6 +137,24 @@ export function TimerScreen() {
         <p className="mt-5 flex items-center justify-center gap-2 text-sm text-emerald-300">
           <Check size={16} /> Session saved to history
         </p>
+      )}
+
+      {/* Denied-permission UX: say it once, explain the fallback, allow dismiss */}
+      {notifyState === 'denied' && !notifyHintDismissed && (
+        <div className="mt-5 flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/5 px-4 py-3">
+          <BellOff size={14} className="mt-0.5 shrink-0 text-amber-300" />
+          <p className="flex-1 text-xs leading-relaxed text-amber-200/90">
+            Notifications are off — Beep still beeps and vibrates while the app is open. For
+            lock-screen cues, allow notifications for this site in your browser settings.
+          </p>
+          <button
+            onClick={() => setNotifyHintDismissed(true)}
+            aria-label="Dismiss notification hint"
+            className="shrink-0 rounded p-1 text-amber-300/70 transition hover:bg-amber-400/10"
+          >
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       {/* active preset summary + offline note */}

@@ -11,6 +11,15 @@ export function registerServiceWorker(): void {
     navigator.serviceWorker
       .register(swUrl)
       .then((registration) => {
+        // A new SW can already be WAITING by the time we attach listeners
+        // (fast network / reload race) — announce it immediately too.
+        const announceIfWaiting = () => {
+          if (registration.waiting && navigator.serviceWorker.controller) {
+            window.dispatchEvent(new CustomEvent('beep-sw-update', { detail: registration }));
+          }
+        };
+        announceIfWaiting();
+
         registration.addEventListener('updatefound', () => {
           const installing = registration.installing;
           if (!installing) return;

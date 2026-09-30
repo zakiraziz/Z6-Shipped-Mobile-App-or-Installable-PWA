@@ -10,7 +10,7 @@
  * Bump VERSION whenever icons / manifest / anything precached changes so old
  * caches get garbage-collected on activate — `npm run bump:cache` does it.
  */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `beep-${VERSION}`;
 
 const CORE_ASSETS = [
@@ -51,15 +51,19 @@ self.addEventListener('message', (event) => {
 });
 
 // A tapped cue notification should bring the app forward, not just vanish.
+// data.url (absolute, set by lib/notify.ts) is the open target — some Android
+// builds open a blank SW context when given only a bare relative path.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const target =
+    (event.notification.data && event.notification.data.url) || self.registration.scope;
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of windows) {
         if ('focus' in client) return client.focus();
       }
-      return self.clients.openWindow('./');
+      return self.clients.openWindow(target);
     })()
   );
 });
