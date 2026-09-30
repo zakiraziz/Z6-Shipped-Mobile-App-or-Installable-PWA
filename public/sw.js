@@ -8,9 +8,9 @@
  *                          immutable, so serve from cache and backfill.
  *
  * Bump VERSION whenever icons / manifest / anything precached changes so old
- * caches get garbage-collected on activate.
+ * caches get garbage-collected on activate — `npm run bump:cache` does it.
  */
-const VERSION = 'v1';
+const VERSION = 'v3';
 const CACHE = `beep-${VERSION}`;
 
 const CORE_ASSETS = [
@@ -48,6 +48,20 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+});
+
+// A tapped cue notification should bring the app forward, not just vanish.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of windows) {
+        if ('focus' in client) return client.focus();
+      }
+      return self.clients.openWindow('./');
+    })()
+  );
 });
 
 self.addEventListener('fetch', (event) => {

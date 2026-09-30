@@ -13,7 +13,7 @@
  *
  * Screenshots for the README are written to ../screenshots.
  */
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,10 +22,21 @@ import puppeteer from 'puppeteer-core';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 4173;
 const BASE = `http://localhost:${PORT}/`;
-const CHROME =
-  process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const SHOTS = join(ROOT, 'screenshots');
 mkdirSync(SHOTS, { recursive: true });
+
+/** System Chrome on any platform (CHROME_PATH overrides for CI). */
+function defaultChromePath() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  if (process.platform === 'win32') {
+    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  }
+  if (process.platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+  return '/usr/bin/google-chrome'; // GitHub Actions ubuntu runners
+}
+const CHROME = defaultChromePath();
 
 const failures = [];
 function check(name, ok, extra = '') {
@@ -34,15 +45,18 @@ function check(name, ok, extra = '') {
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Spawn vite preview DIRECTLY (no npm/cmd wrapper) so a single child.kill()
+// reliably frees the port on every platform — this is what makes CI possible.
 function startServer() {
-  return spawn('cmd.exe', ['/c', 'npm', 'run', 'preview', '--', '--port', String(PORT), '--strictPort'], {
+  const viteBin = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  return spawn(process.execPath, [viteBin, 'preview', '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: 'ignore',
   });
 }
 function stopServer(child) {
   try {
-    execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' });
+    child.kill();
   } catch {
     /* already gone */
   }
@@ -131,6 +145,11 @@ try {
     [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Presets'))?.click();
   });
   await sleep(300);
+  const hasIo = await page.evaluate(() => {
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent || '');
+    return labels.some((t) => t.includes('Export')) && labels.some((t) => t.includes('Import'));
+  });
+  check('presets export/import controls present', hasIo);
   await page.screenshot({ path: join(SHOTS, 'presets-screen.png') });
 
   // history tab screenshot (with the session we just finished)

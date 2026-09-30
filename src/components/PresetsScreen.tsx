@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Check, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useRef, useState, type ChangeEvent } from 'react';
+import { Check, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { presetSummary, presetTotalMs } from '../lib/presets';
+import { parsePresetFile, serializePresets } from '../lib/presets-io';
 import { formatClock, uid } from '../lib/format';
 import { useAppState } from '../state';
 import { PresetForm, type PresetDraft } from './PresetForm';
@@ -8,12 +9,48 @@ import { PresetForm, type PresetDraft } from './PresetForm';
 export function PresetsScreen() {
   const { presets, activePreset, selectPreset, savePreset, deletePreset } = useAppState();
   const [editing, setEditing] = useState<PresetDraft | null>(null);
+  const [ioStatus, setIoStatus] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const openNew = () =>
     setEditing({ id: uid(), name: '', workSec: 30, restSec: 15, rounds: 8 });
 
   const openEdit = (id: string, name: string, workSec: number, restSec: number, rounds: number) =>
     setEditing({ id, name, workSec, restSec, rounds });
+
+  const customPresets = presets.filter((preset) => !preset.builtin);
+
+  const handleExport = () => {
+    if (customPresets.length === 0) {
+      setIoStatus('No custom presets yet — create one first.');
+      return;
+    }
+    const blob = new Blob([serializePresets(customPresets)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `beep-presets-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setIoStatus(`Exported ${customPresets.length} preset${customPresets.length === 1 ? '' : 's'}.`);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    try {
+      const parsed = parsePresetFile(await file.text());
+      if (!parsed) {
+        setIoStatus('Could not read that file — expected a Beep presets JSON.');
+        return;
+      }
+      parsed.forEach(savePreset);
+      setIoStatus(`Imported ${parsed.length} preset${parsed.length === 1 ? '' : 's'}.`);
+    } catch {
+      setIoStatus('Could not read that file.');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -94,6 +131,34 @@ export function PresetsScreen() {
             </div>
           );
         })}
+      </div>
+
+      {/* share / backup: custom presets as a JSON file */}
+      <div className="flex items-center justify-between gap-3 border-t border-slate-800 pt-4">
+        <div className="flex gap-2">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1.5 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 active:scale-95"
+          >
+            <Download size={13} /> Export
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 active:scale-95"
+          >
+            <Upload size={13} /> Import
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+        </div>
+        <span className="text-xs text-slate-500" role="status">
+          {ioStatus}
+        </span>
       </div>
 
       {editing && (

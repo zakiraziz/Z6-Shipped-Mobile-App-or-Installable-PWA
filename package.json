@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:smoke": "node scripts/smoke.mjs"
+    "test:smoke": "node scripts/smoke.mjs",
+    "bump:cache": "node scripts/bump-cache.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.34.0",

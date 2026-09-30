@@ -61,7 +61,7 @@ export function TimerDisplay({
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}
             strokeDashoffset={CIRCUMFERENCE * (1 - ringProgress)}
-            style={{ transition: 'stroke-dashoffset 150ms linear, stroke 300ms ease' }}
+            style={{ transition: 'stroke-dashoffset 200ms linear, stroke 300ms ease' }}
           />
         </svg>
 
@@ -88,7 +88,7 @@ export function TimerDisplay({
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
           <div
-            className="h-full rounded-full bg-lime-400 transition-all duration-150"
+            className="h-full rounded-full bg-lime-400 transition-all duration-200"
             style={{ width: `${totalProgress * 100}%` }}
           />
         </div>

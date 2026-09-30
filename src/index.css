@@ -42,3 +42,26 @@ body {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* Accessibility: honour reduced-motion (kill the ring/button transitions) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Accessibility: high-contrast — stronger borders, brighter muted text */
+@media (prefers-contrast: more) {
+  [class*='border-slate-'] {
+    border-color: #94a3b8 !important;
+  }
+  [class*='text-slate-4'],
+  [class*='text-slate-5'] {
+    color: #e2e8f0 !important;
+  }
+}

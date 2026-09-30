@@ -1,5 +1,6 @@
 import { Check, Pause, Play, RotateCcw, SkipForward, Square, Zap } from 'lucide-react';
 import { formatClock } from '../lib/format';
+import { requestNotifyPermissionOnce } from '../lib/notify';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { primeAudio } from '../lib/sound';
 import { useAppState } from '../state';
@@ -24,13 +25,28 @@ export function TimerScreen() {
           : 'Start timer';
 
   const handlePrimary = () => {
-    primeAudio(); // must happen inside the gesture so audio is allowed later
+    primeAudio(); // gesture → unlock Web Audio (incl. iOS activation blip)
+    void requestNotifyPermissionOnce(); // first Start only; remembered, never nags
     timer.toggle();
   };
 
+  // Announced to screen readers on phase/status changes (not every tick).
+  const announcement =
+    status === 'idle'
+      ? `${activePreset.name} ready. ${activePreset.rounds} rounds.`
+      : status === 'finished'
+        ? 'Session complete. Saved to history.'
+        : status === 'paused'
+          ? `Paused. ${timer.segment.label}, round ${timer.round} of ${timer.rounds}.`
+          : `${timer.segment.label} started. Round ${timer.round} of ${timer.rounds}.`;
+
   return (
     <div>
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
       {/* preset chips */}
+
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {presets.map((preset) => {
           const isActive = preset.id === activePreset.id;

@@ -1,9 +1,7 @@
-import type { Settings } from '../types';
-
 /**
  * All cues are synthesised with the Web Audio API — no audio files, so every
- * beep works offline. The AudioContext is created on the first user gesture
- * (primeAudio from the Start button) as browsers block audio before that.
+ * beep works offline. The AudioContext is created/unlocked on the first user
+ * gesture (primeAudio from the Start button) as browsers block audio before.
  */
 let ctx: AudioContext | null = null;
 
@@ -15,16 +13,38 @@ function audio(): AudioContext | null {
       if (!Ctor) return null;
       ctx = new Ctor();
     }
-    if (ctx.state === 'suspended') void ctx.resume();
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
     return ctx;
   } catch {
     return null;
   }
 }
 
-/** Call from a click/tap so audio is allowed to start later. */
+/**
+ * Unlock audio from inside the first user gesture (Start tap). The zero-length
+ * buffer "blip" marks the context as user-activated — iOS requires this before
+ * it will let the page make sound later (e.g. after backgrounding).
+ */
 export function primeAudio(): void {
-  audio();
+  const ac = audio();
+  if (!ac) return;
+  try {
+    const source = ac.createBufferSource();
+    source.buffer = ac.createBuffer(1, 1, ac.sampleRate);
+    source.connect(ac.destination);
+    source.start();
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * iOS suspends the AudioContext when the tab is backgrounded — call this on
+ * visibilitychange/return so the next cue can actually make sound.
+ */
+export function resumeAudio(): void {
+  const ac = audio();
+  if (ac && ac.state === 'suspended') void ac.resume().catch(() => undefined);
 }
 
 function tone(frequency: number, durationMs: number, delayMs = 0, volume = 0.12): void {
@@ -47,35 +67,22 @@ function tone(frequency: number, durationMs: number, delayMs = 0, volume = 0.12)
   oscillator.stop(end + 0.02);
 }
 
-function buzz(pattern: number | number[]): void {
-  try {
-    navigator.vibrate?.(pattern);
-  } catch {
-    /* vibration not supported (iOS, desktop) — ignore */
-  }
+/**
+ * Audio half of the cue system — vibration patterns and notifications live in
+ * lib/cues.ts so each channel can be tuned independently.
+ */
+export function playCountdown(): void {
+  tone(880, 90);
 }
 
-/** Last 3 seconds of a segment. */
-export function playCountdown(settings: Settings): void {
-  if (settings.sound) tone(880, 90);
-  if (settings.vibrate) buzz(45);
+export function playPhaseChange(): void {
+  tone(660, 110);
+  tone(990, 160, 140);
 }
 
-/** Segment changed: work ⇄ rest. */
-export function playPhaseChange(settings: Settings): void {
-  if (settings.sound) {
-    tone(660, 110);
-    tone(990, 160, 140);
-  }
-  if (settings.vibrate) buzz([80, 60, 80]);
+export function playFinish(): void {
+  tone(660, 140);
+  tone(880, 140, 170);
+  tone(1180, 300, 340);
 }
 
-/** Session finished. */
-export function playFinish(settings: Settings): void {
-  if (settings.sound) {
-    tone(660, 140);
-    tone(880, 140, 170);
-    tone(1180, 300, 340);
-  }
-  if (settings.vibrate) buzz([200, 90, 200, 90, 400]);
-}

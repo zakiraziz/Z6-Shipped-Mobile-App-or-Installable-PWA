@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { playCountdown, playFinish, playPhaseChange } from '../lib/sound';
+import { cueCountdown, cueFinish, cuePhaseChange } from '../lib/cues';
+import { resumeAudio } from '../lib/sound';
 import { buildSegments, presetTotalMs } from '../lib/presets';
 import type { Preset, Settings, TimerStatus } from '../types';
 import type { Segment } from '../types';
@@ -11,12 +12,17 @@ type Location = { index: number; offset: number };
 /** Guard so a corrupted preset can never crash the render. */
 const FALLBACK_SEGMENT: Segment = { kind: 'work', label: 'Work', round: 1, durationMs: 0 };
 
+/**
+ * Main-loop cadence. A plain interval (not rAF) keeps firing while the tab is
+ * backgrounded, and every tick replays ALL boundaries crossed since the last
+ * one — so a throttled or slept phone catches up instead of missing cues.
+ */
+const TICK_MS = 200;
 
 /**
  * The timer engine. Elapsed time is derived from timestamps
  * (`anchor.base + performance.now() - anchor.at`) instead of counting ticks,
  * so a throttled background tab catches up exactly when it is visible again.
- * Beeps and vibration are edge-detected against the previous elapsed value.
  */
 export function useIntervalTimer(
   preset: Preset,
@@ -33,6 +39,8 @@ export function useIntervalTimer(
   settingsRef.current = settings;
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const presetNameRef = useRef(preset.name);
+  presetNameRef.current = preset.name;
 
   const anchorRef = useRef({ at: 0, base: 0 });
   const prevRef = useRef(0);
@@ -61,11 +69,16 @@ export function useIntervalTimer(
       prevRef.current = finalMs;
       setElapsed(finalMs);
       setStatus('finished');
-      playFinish(settingsRef.current);
+      cueFinish(settingsRef.current, {
+        presetName: presetNameRef.current,
+        elapsedMs: finalMs,
+        completed: info.completed,
+      });
       onCompleteRef.current(info);
     },
     [totalMs]
   );
+
 
   // Reset whenever the identity/shape of the active preset changes.
   const presetKey = `${preset.id}|${preset.workSec}|${preset.restSec}|${preset.rounds}`;
@@ -76,51 +89,67 @@ export function useIntervalTimer(
     doneRef.current = false;
   }, [presetKey]);
 
-  // Main loop — only alive while the timer runs.
+  // Main loop — a plain interval, NOT rAF: it keeps firing in a backgrounded
+  // tab (rAF stops entirely). Each tick replays EVERY segment boundary crossed
+  // since the previous tick, so a throttled or slept phone catches up on missed
+  // cues instead of silently skipping them.
   useEffect(() => {
     if (status !== 'running') return;
 
-    let raf = 0;
     const tick = () => {
       const now = performance.now();
       const ms = Math.min(anchorRef.current.base + (now - anchorRef.current.at), totalMs);
       const prev = prevRef.current;
 
-      if (ms > prev) {
-        const from = locate(prev);
-        const to = locate(ms);
-        if (from.index === to.index) {
-          // Same segment: fire countdown beeps crossing 3/2/1 seconds.
+      if (ms > prev && segments.length > 0) {
+        // Boundaries strictly between prev and ms (prev < b <= ms). Values are
+        // indices of the segments that START at each crossed boundary.
+        const crossed: number[] = [];
+        let acc = 0;
+        for (let i = 0; i < segments.length - 1; i += 1) {
+          acc += segments[i].durationMs;
+          if (acc > prev && acc <= ms) crossed.push(i + 1);
+        }
+
+        if (crossed.length > 0) {
+          // Coalesce: one cue for the latest boundary (tag+renotify replaces
+          // any earlier notification — no spam after a long sleep).
+          const lastIndex = crossed[crossed.length - 1];
+          cuePhaseChange(settingsRef.current, {
+            endedKind: segments[lastIndex - 1].kind,
+            next: segments[lastIndex],
+            rounds: preset.rounds,
+            missed: crossed.length,
+          });
+        } else {
+          // Same segment: fire countdown beeps when crossing 3/2/1 seconds.
+          const from = locate(prev);
+          const to = locate(ms);
           const duration = segments[from.index].durationMs;
           const before = duration - from.offset;
           const after = duration - to.offset;
           const secBefore = Math.ceil(before / 1000);
           const secAfter = Math.ceil(after / 1000);
           if (after > 0 && secAfter < secBefore && secAfter <= 3) {
-            playCountdown(settingsRef.current);
+            cueCountdown(settingsRef.current);
           }
-        } else {
-          // Crossed a segment boundary: work ⇄ rest.
-          playPhaseChange(settingsRef.current);
         }
       }
 
       prevRef.current = ms;
       setElapsed(ms);
 
-      if (ms >= totalMs) {
-        complete({ completed: true, elapsedMs: totalMs });
-        return;
-      }
-      raf = requestAnimationFrame(tick);
+      if (ms >= totalMs) complete({ completed: true, elapsedMs: totalMs });
     };
 
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [status, totalMs, segments, locate, complete]);
+    tick(); // immediate first frame so Start feels instant
+    const intervalId = window.setInterval(tick, TICK_MS);
+    return () => window.clearInterval(intervalId);
+  }, [status, totalMs, segments, locate, complete, preset.rounds]);
 
   const start = useCallback(() => {
     if (status === 'running') return;
+    resumeAudio(); // Start is always a gesture — belt & braces for iOS
     let base = elapsed;
     if (status === 'finished' || base >= totalMs) {
       base = 0;
@@ -162,8 +191,12 @@ export function useIntervalTimer(
     prevRef.current = boundary;
     setElapsed(boundary);
     anchorRef.current = { at: performance.now(), base: boundary };
-    playPhaseChange(settingsRef.current);
-  }, [status, elapsed, locate, segments, totalMs, complete]);
+    cuePhaseChange(settingsRef.current, {
+      endedKind: segments[here.index].kind,
+      next: segments[here.index + 1],
+      rounds: preset.rounds,
+    });
+  }, [status, elapsed, locate, segments, totalMs, complete, preset.rounds]);
 
   const finish = useCallback(() => {
     if (status !== 'running' && status !== 'paused') return;
