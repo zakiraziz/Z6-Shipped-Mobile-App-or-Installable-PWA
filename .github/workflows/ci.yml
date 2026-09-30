@@ -18,10 +18,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Record pristine dist checksums
+        run: find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.sha256
       - name: End-to-end + offline smoke test (headless Chrome)
         run: npm run test:smoke
         env:
           CHROME_PATH: /usr/bin/google-chrome
+      - name: Assert dist is pristine (tests must not modify build output)
+        run: |
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.after.sha256
+          if ! diff -u dist.sha256 dist.after.sha256; then
+            echo "::error::dist/ was modified by tests — failing fast"
+            exit 1
+          fi
       - name: Upload README screenshots
         if: always()
         uses: actions/upload-artifact@v4

@@ -25,8 +25,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Checksums BEFORE tests: tests must never mutate release output. The
+      # restore-in-finally in scripts/smoke.mjs protects local runs; this gate
+      # makes any future mutation bug block the deploy instead of shipping.
+      # (git diff can't be used: dist/ is gitignored.)
+      - name: Record pristine dist checksums
+        run: find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.sha256
       # Block the deploy if the end-to-end + offline smoke test fails.
       - run: npm run test:smoke
+      - name: Assert dist is pristine (tests must not modify build output)
+        run: |
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.after.sha256
+          if ! diff -u dist.sha256 dist.after.sha256; then
+            echo "::error::dist/ was modified by tests — refusing to deploy"
+            exit 1
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

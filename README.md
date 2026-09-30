@@ -96,6 +96,34 @@ npm run dev -- --host
 
 **Background-cue test (the important one):** start a session → lock the phone or switch apps → at the next phase change you should get a notification ("Work complete — Rest 0:10 — round 3/8") that stays until tapped; tapping it opens Beep. On iOS this works only in the installed app (≥ 16.4).
 
+### Real-device checklist (this is the last DoD box)
+
+**Android — Chrome, installed via ⋮ → Install app**
+
+| # | Step | Pass criteria | If it fails, check |
+| --- | --- | --- | --- |
+| 1 | Install from the live URL | Icon on home screen, opens standalone (no URL bar) | `display_override` order; `start_url` scope |
+| 2 | Grant notifications on first Start | OS dialog appears after tapping Start, never on load | permission call must live inside the gesture handler |
+| 3 | Start a session, lock the phone | Screen off, timer still running | — |
+| 4 | Wait for the next boundary | Notification arrives within ~5 s of the phase change | `data.url` present; `showNotification` not throwing |
+| 5 | Tap the notification | Beep opens focused — not a blank tab or new window | `notificationclick` focus branch vs `openWindow` |
+| 6 | Lock again, sleep through 3+ phases | On unlock: catch-up notification says "N phases passed" | 5 s gap threshold; boundary-crossing replay |
+| 7 | Feel work vs rest haptic | Work = 3 short pulses, rest = 1 long, no double-fire | one `cuePhaseChange` per boundary |
+| 8 | Airplane mode, cold launch from home screen | App loads from SW cache, timer runs | SW install/activate caching |
+
+**iOS — Safari ≥ 16.4, installed via Share → Add to Home Screen**
+
+| # | Step | Pass criteria | If it fails, check |
+| --- | --- | --- | --- |
+| 1 | Install from the live URL | Icon on home screen, opens standalone | manifest `display: standalone` |
+| 2 | First Start | Audio unlock blip plays (silent but present) | `primeAudio()` inside the gesture |
+| 3 | Background the app | AudioContext suspends (expected) | — |
+| 4 | Return to the app | Audio resumes, ring shows no missed time | `visibilitychange → visible → resumeAudio()` |
+| 5 | Lock screen mid-session | **No notification expected** — Android gets real background cues; iOS is best-effort (installed PWAs ≥16.4 only, still limited) | this is the honest caveat above, not a bug |
+| 6 | Screen stays awake in foreground | Wake lock held, re-acquired after backgrounding | `wakeLock.request` + `.released` re-acquire |
+
+Tick the Definition of Done box after both tables pass.
+
 ## Definition of Done
 
 - [x] **Installable on a real device** — manifest + icons + service worker verified by `npm run test:smoke` (standalone display, 3 icons, active SW, native install prompt in Chrome)
@@ -105,7 +133,7 @@ npm run dev -- --host
 
 ## Publish / re-deploy
 
-`.github/workflows/deploy.yml` builds, runs the full smoke test (a failing test **blocks the deploy**) and deploys on every push to `main`; `.github/workflows/ci.yml` runs the same test on every push/PR and uploads the screenshots as artifacts.
+`.github/workflows/deploy.yml` builds, runs the full smoke test (a failing test **blocks the deploy**), then **asserts `dist/` is byte-identical to the fresh build** — tests must never modify release output — before uploading it, and deploys on every push to `main`; `.github/workflows/ci.yml` runs the same test + pristine-`dist` assert on every push/PR and uploads the screenshots as artifacts.
 First time only: repo **Settings → Pages → Source: GitHub Actions**.
 Any other static host works too — the build uses a relative base (`base: './'`), so `dist/` can be dropped into any sub-folder (Netlify, Vercel, Surge…).
 
@@ -141,6 +169,8 @@ Any other static host works too — the build uses a relative base (`base: './'`
 The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci.yml`, screenshots uploaded as artifacts) and gates the Pages deploy.
 
 > **Deliberate non-goals:** no Lighthouse CI — the PWA audit category was removed in Lighthouse 12 and perf scores on shared runners are flaky, so the smoke test asserts installability/offline behaviour directly instead. No Playwright either: the puppeteer-core harness covers the same ground with zero extra dependencies. Chrome is resolved per platform (`CHROME_PATH` env overrides) rather than version-pinned.
+
+> **War story (why the pristine-`dist` assert exists):** _Beep cues you even when your phone is locked in your pocket: a precise wake at each phase boundary, a persistent notification with `requireInteraction` and a working `notificationclick` (the `data.url` fallback was a real Android silent-failure caught and fixed), and a catch-up summary if the OS throttled the timer while you slept. My own cache-bump test once shipped `v999` to prod — the deploy is now gated on a byte-level pristine-`dist` assert (checksums before vs. after tests) so it can't happen again._
 
 ## If you get stuck
 
