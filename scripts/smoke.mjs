@@ -25,6 +25,14 @@ const BASE = `http://localhost:${PORT}/`;
 const SHOTS = join(ROOT, 'screenshots');
 mkdirSync(SHOTS, { recursive: true });
 
+// Original release files. The update-flow test mutates dist/ copies — and the
+// deploy workflow uploads dist/ AFTER this test runs, so without a restore
+// the test's artifacts (v999 / "Beep!") would ship to production.
+let originalManifest = null;
+let originalSw = null;
+let manifestPath = '';
+let swDistPath = '';
+
 /** System Chrome on any platform (CHROME_PATH overrides for CI). */
 function defaultChromePath() {
   if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
@@ -166,16 +174,17 @@ try {
   // `npm run bump:cache` + rebuild produce). The update toast must appear,
   // and clicking Refresh must serve the NEW manifest without a hard reload —
   // this is exactly the stale-cache path a bump:cache release goes through.
-  const manifestPath = join(ROOT, 'dist', 'manifest.webmanifest');
-  const swDistPath = join(ROOT, 'dist', 'sw.js');
+  const manifestPathFile = join(ROOT, 'dist', 'manifest.webmanifest');
+  const swDistPathFile = join(ROOT, 'dist', 'sw.js');
+  manifestPath = manifestPathFile;
+  swDistPath = swDistPathFile;
+  originalManifest = readFileSync(manifestPath, 'utf8');
+  originalSw = readFileSync(swDistPath, 'utf8');
   writeFileSync(
     manifestPath,
-    readFileSync(manifestPath, 'utf8').replace('"short_name": "Beep"', '"short_name": "Beep!"')
+    originalManifest.replace('"short_name": "Beep"', '"short_name": "Beep!"')
   );
-  writeFileSync(
-    swDistPath,
-    readFileSync(swDistPath, 'utf8').replace(/const VERSION = 'v\d+';/, "const VERSION = 'v999';")
-  );
+  writeFileSync(swDistPath, originalSw.replace(/const VERSION = 'v\d+';/, "const VERSION = 'v999';"));
   stopServer(server);
   server = startServer();
   await sleep(4000);
@@ -242,6 +251,14 @@ try {
   page.off('pageerror', onOfflineError);
 } finally {
   stopServer(server);
+  // Restore test-mutated dist files — a deploy artifact built from this dist
+  // must be pristine (this exact leak shipped v999 to production once).
+  try {
+    if (originalManifest !== null) writeFileSync(manifestPath, originalManifest);
+    if (originalSw !== null) writeFileSync(swDistPath, originalSw);
+  } catch {
+    /* dist may not exist if smoke was run without a build */
+  }
   await browser.close();
 }
 
