@@ -1,13 +1,15 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Check, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { parsePresetFile, serializePresets } from '../lib/presets-io';
 import { formatClock, uid } from '../lib/format';
+import type { Preset } from '../types';
 import { useAppState } from '../state';
 import { PresetForm, type PresetDraft } from './PresetForm';
 
 export function PresetsScreen() {
-  const { presets, activePreset, selectPreset, savePreset, deletePreset } = useAppState();
+  const { presets, activePreset, selectPreset, savePreset, deletePreset, moveCustomPreset } =
+    useAppState();
   const [editing, setEditing] = useState<PresetDraft | null>(null);
   const [ioStatus, setIoStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -17,6 +19,13 @@ export function PresetsScreen() {
 
   const openEdit = (id: string, name: string, workSec: number, restSec: number, rounds: number) =>
     setEditing({ id, name, workSec, restSec, rounds });
+
+  /** #17 — "Save as…": iterate without fear of destroying the original. */
+  const duplicatePreset = (preset: Preset) => {
+    const copy: Preset = { ...preset, id: uid(), name: `${preset.name} copy`, builtin: false };
+    savePreset(copy);
+    setIoStatus(`Duplicated as "${copy.name}".`);
+  };
 
   const customPresets = presets.filter((preset) => !preset.builtin);
 
@@ -117,23 +126,48 @@ export function PresetsScreen() {
                   {isActive && <Check size={16} className="mr-1 text-lime-300" />}
                   {!preset.builtin && (
                     <>
+                      {/* #18: ordering that works on touch AND keyboard */}
+                      <button
+                        onClick={() => moveCustomPreset(preset.id, -1)}
+                        aria-label={`Move ${preset.name} up`}
+                        className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                      >
+                        <ChevronUp size={16} />
+                      </button>
+                      <button
+                        onClick={() => moveCustomPreset(preset.id, 1)}
+                        aria-label={`Move ${preset.name} down`}
+                        className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
                       <button
                         onClick={() =>
                           openEdit(preset.id, preset.name, preset.workSec, preset.restSec, preset.rounds)
                         }
                         aria-label={`Edit ${preset.name}`}
-                        className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                        className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
                       >
                         <Pencil size={15} />
                       </button>
                       <button
                         onClick={() => deletePreset(preset.id)}
                         aria-label={`Delete ${preset.name}`}
-                        className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-rose-400"
+                        className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-rose-400"
                       >
                         <Trash2 size={15} />
                       </button>
                     </>
+                  )}
+                  {preset.builtin && (
+                    <button
+                      onClick={() => duplicatePreset(preset)}
+                      aria-label={`Duplicate ${preset.name}`}
+                      title="Duplicate as an editable copy"
+                      className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                    >
+                      <Copy size={16} />
+                    </button>
                   )}
                 </div>
               </div>

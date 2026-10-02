@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Timer, Trash2 } from 'lucide-react';
+import { Flame, Timer, Trash2 } from 'lucide-react';
 import { formatDateTime, formatDuration } from '../lib/format';
 import { useAppState } from '../state';
 
@@ -15,6 +15,18 @@ export function HistoryScreen() {
     (entry) => new Date(entry.finishedAt).getTime() >= weekAgo
   ).length;
   const totalSeconds = history.reduce((sum, entry) => sum + entry.elapsedSeconds, 0);
+
+  // #19: consecutive local days with ≥1 session (today, or starting yesterday).
+  const trainedDays = new Set(history.map((entry) => new Date(entry.finishedAt).toDateString()));
+  const streakCursor = new Date();
+  if (!trainedDays.has(streakCursor.toDateString())) {
+    streakCursor.setDate(streakCursor.getDate() - 1);
+  }
+  let streak = 0;
+  while (trainedDays.has(streakCursor.toDateString())) {
+    streak += 1;
+    streakCursor.setDate(streakCursor.getDate() - 1);
+  }
 
   return (
     <div className="space-y-4">
@@ -56,6 +68,15 @@ export function HistoryScreen() {
         </div>
       ) : (
         <>
+          {streak >= 1 && (
+            <div className="flex items-center gap-2 rounded-2xl border border-orange-400/30 bg-orange-400/5 px-4 py-3">
+              <Flame size={16} className="shrink-0 text-orange-400" />
+              <p className="text-sm text-orange-200/90">
+                <span className="font-bold">{streak}-day streak</span>
+                {streak === 1 ? ' — trained today, nice start' : ' in a row — keep it going'}
+              </p>
+            </div>
+          )}
           <div className="flex gap-3">
             <div className={statCard}>
               <p className="text-xl font-bold tabular-nums">{history.length}</p>

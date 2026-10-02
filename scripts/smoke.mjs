@@ -107,6 +107,10 @@ try {
   );
   check('no horizontal overflow @390px', overflow <= 0, `delta ${overflow}px`);
 
+  // #2: the upcoming phase is visible before anything starts
+  const hasNext = await page.evaluate(() => (document.body.innerText || '').includes('NEXT'));
+  check('NEXT preview shows upcoming phase', hasNext);
+
   // ---- 3. manifest ---------------------------------------------------
   const manifest = await page.evaluate(async () => {
     const response = await fetch('manifest.webmanifest');
@@ -132,8 +136,19 @@ try {
 
   // ---- 5. run a session end-to-end ----------------------------------
   await page.click('button[aria-label="Start timer"]');
-  await sleep(1500);
-  check('timer starts (pause button visible)', !!(await page.$('button[aria-label="Pause timer"]')));
+  // #1: a GET READY 3-2-1 countdown runs before the engine starts
+  let countdownShown = true;
+  try {
+    await page.waitForFunction(() => (document.body.innerText || '').includes('GET READY'), {
+      timeout: 3000,
+    });
+  } catch {
+    countdownShown = false;
+  }
+  check('3-2-1 get-ready countdown appears on Start', countdownShown);
+  await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 9000 });
+  check('timer starts after countdown (pause button visible)', true);
+  await sleep(1200);
 
   await page.evaluate(() => {
     const button = [...document.querySelectorAll('button')].find((b) =>
@@ -147,6 +162,12 @@ try {
     () => JSON.parse(localStorage.getItem('beep.history.v1') || '[]').length
   );
   check('finished session saved to localStorage history', historyCount >= 1, `${historyCount} entries`);
+
+  // #5: the end-of-session summary must render with the work/rest split
+  const hasSummary = await page.evaluate(
+    () => !!document.querySelector('[aria-label="Session summary"]')
+  );
+  check('session summary shows after finish', hasSummary);
 
   // presets tab screenshot
   await page.evaluate(() => {
@@ -242,8 +263,13 @@ try {
     [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Timer'))?.click();
   });
   await page.click('button[aria-label="Start timer"]');
-  await sleep(1200);
-  const runsOffline = !!(await page.$('button[aria-label="Pause timer"]'));
+  // The 3-2-1 countdown runs here too — wait for the engine instead of sleeping.
+  let runsOffline = true;
+  try {
+    await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 9000 });
+  } catch {
+    runsOffline = false;
+  }
   check('OFFLINE: core feature (timer) runs with server down', runsOffline);
   await page.screenshot({ path: join(SHOTS, 'offline-screen.png') });
 
