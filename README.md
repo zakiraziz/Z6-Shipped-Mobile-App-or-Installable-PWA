@@ -115,6 +115,7 @@ npm run dev -- --host
 | 6 | Lock again, sleep through 3+ phases | On unlock: catch-up notification says "N phases passed" | 5 s gap threshold; boundary-crossing replay |
 | 7 | Feel work vs rest haptic | Work = 3 short pulses, rest = 1 long, no double-fire | one `cuePhaseChange` per boundary |
 | 8 | Airplane mode, cold launch from home screen | App loads from SW cache, timer runs | SW install/activate caching |
+| 9 | Toggle each preference chip mid-session | Big numbers fills the ring with 96px digits · Halfway chime chirps at a segment midpoint · Voice cues speaks the next phase ("Work, round 2 of 8") without overlap · Left-handed swaps reset/skip sides | `settings.*` in `lib/cues.ts` + `TimerDisplay`; `toggleSetting` in `state.tsx` |
 
 **iOS — Safari ≥ 16.4, installed via Share → Add to Home Screen**
 
@@ -126,6 +127,7 @@ npm run dev -- --host
 | 4 | Return to the app | Audio resumes, ring shows no missed time | `visibilitychange → visible → resumeAudio()` |
 | 5 | Lock screen mid-session | **No notification expected** — Android gets real background cues; iOS is best-effort (installed PWAs ≥16.4 only, still limited) | this is the honest caveat above, not a bug |
 | 6 | Screen stays awake in foreground | Wake lock held, re-acquired after backgrounding | `wakeLock.request` + `.released` re-acquire |
+| 7 | Toggle each preference chip | Same behaviours as Android row 9 (iOS uses the system default voice for Voice cues) | `settings.*` in `lib/cues.ts` + `TimerDisplay` |
 
 Tick the Definition of Done box after both tables pass.
 
@@ -175,7 +177,7 @@ The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci
 
 > **Deliberate non-goals:** no Lighthouse CI — the PWA audit category was removed in Lighthouse 12 and perf scores on shared runners are flaky, so the smoke test asserts installability/offline behaviour directly instead. No Playwright either: the puppeteer-core harness covers the same ground with zero extra dependencies. Chrome is resolved per platform (`CHROME_PATH` env overrides) rather than version-pinned.
 
-> **War story (why the pristine-`dist` assert exists):** _Beep cues you even when your phone is locked in your pocket — precise boundary wakes, persistent notifications with a working `notificationclick`, catch-up summaries after OS throttling. My own cache-bump test once shipped `v999` to prod; the deploy is now gated on a byte-identical `dist/` checksum, because the first version of that gate I wrote would have passed vacuously on a gitignored path._
+> **War story + final claim:** _Beep cues you even when your phone is locked in your pocket — precise boundary wakes, persistent notifications with a working `notificationclick`, catch-up summaries after OS throttling. It's a full interval timer: 3-2-1 countdown, tap-ring pause, skip, NEXT preview, session summary with an honest work/rest split, streaks, and share-as-link. My own cache-bump test once shipped `v999` to prod; the deploy is now gated on a byte-identical `dist/` checksum, because the first version of that gate I wrote would have passed vacuously on a gitignored path. When the vision channel served stale screenshots, I added a DOM assertion instead of trusting the image. And every feature claim in the README is backed by a check that runs on every push — except the two physical phone items, which stay honestly unticked until a human holding a phone proves them._
 
 ## If you get stuck
 
