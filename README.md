@@ -23,13 +23,18 @@
 
 **Core**
 - Interval engine: work/rest segments, round counter, ring + total progress, pause / resume / skip / reset / finish
+- **3-2-1 GET READY countdown** before every session — beeps 3-2-1, then the engine starts (second tap cancels)
+- **NEXT preview** under the ring ("NEXT · Rest 0:10 · round 2") so you can prepare for what's coming
+- **The whole ring is a tap target** — start / pause / resume with a sweaty thumb, no precision aiming
+- **Session summary at the end**: total time, rounds completed, honest work/rest split, and one-tap Share (Web Share API → clipboard fallback)
 - **Background cues that can't be missed:** when the screen isn't visible, every phase change and the finish fire a persistent service-worker notification (`requireInteraction`, `tag` + `renotify` → exactly one cue at a time, replaced per phase). Permission is requested once, on the first Start tap — never nags.
 - **Drift-free catch-up scheduler:** the engine runs on absolute timestamps with a plain interval (rAF stops entirely when backgrounded) and *replays every boundary crossed* — after the OS throttles a slept phone, cues fire with a "N phases passed" summary instead of vanishing silently. Each tick also arms a precise `setTimeout` at the next boundary (an exact wake, not a polled guess), and if a >5 s gap contained crossed phases the catch-up notification is forced **even after you unlock straight into the app** — those cues were physically missed, so the notification says so
-- 5 built-in presets (Tabata, HIIT 45/15, Boxing rounds, Pomodoro, Sprint 30/90) + create / edit / delete custom presets
-- **Presets export/import as JSON** — share workouts, back up, move them between devices (import validates + clamps every field and **reports skipped entries and unknown fields explicitly** — nothing is dropped silently)
-- Session history with stats (sessions, this week, total time) — stored on the device (`localStorage`, `navigator.storage.persist()` requested so it survives storage pressure)
+- **6 built-in presets (Tabata, HIIT 45/15, Boxing rounds, Pomodoro, Sprint 30/90, EMOM 10)** + create / edit / delete custom presets, duplicate any built-in as an editable copy, and reorder customs with touch-friendly ↑/↓ (order persists)
+- **Presets export/import as JSON** — share workouts, back up, move them between devices (import validates + clamps every field and **reports skipped entries and unknown fields explicitly** — nothing is dropped silently) — or **share a preset as a link** (`?p=<base64url>`): the receiver gets an "Add this preset?" card, no file needed
+- Session history with stats (sessions, this week, total time) — stored on the device (`localStorage`, `navigator.storage.persist()` requested so it survives storage pressure) — plus a **streak counter** ("3-day streak in a row")
 - Countdown beeps for 3/2/1, a distinct Web Audio fanfare per phase, and **distinct haptics per phase** (work = 3 short pulses, rest = 1 long) plus sound / vibration toggles in the header
 - Screen-reader announcements on every phase/status change (`aria-live="assertive"`)
+- **Preferences where they're used** (chips on the timer card): Big numbers (96px digits for across-the-room viewing), Halfway chime (opt-in midpoint cue), Voice cues ("Work, round 3 of 8" via `speechSynthesis`), Left-handed layout (controls swap sides)
 - Denied-permission UX: the Timer screen says **once** (dismissible) that notifications are off and what still works — no silent failure
 - "Offline" pill appears the moment the network drops
 
@@ -50,9 +55,9 @@
 | --- | --- | --- |
 | ![Timer](./screenshots/timer-screen.png) | ![Presets](./screenshots/presets-screen.png) | ![History](./screenshots/history-screen.png) |
 
-| Core feature with the server switched **off** |
-| --- |
-| ![Offline](./screenshots/offline-screen.png) |
+| Session summary (after finish) | Core feature with the server switched **off** |
+| --- | --- |
+| ![Session summary](./screenshots/session-summary.png) | ![Offline](./screenshots/offline-screen.png) |
 
 ---
 
@@ -154,8 +159,8 @@ Any other static host works too — the build uses a relative base (`base: './'`
 │  ├─ lib/cues.ts            # sound + haptics + notifications, one dispatcher per phase
 │  ├─ lib/notify.ts          # permission flow (ask once), SW notifications, cleanup
 │  ├─ lib/sound.ts           # Web Audio cues + iOS unlock / resume
-│  ├─ lib/presets-io.ts      # preset JSON export/import (validated + clamped)
-│  └─ components/            # Timer, Presets, History, Header, TabBar, banners
+│  ├─ lib/presets-io.ts      # preset JSON import/export + ?p= share links
+│  └─ components/            # Timer (+ summary & preference chips), Presets, History, banners
 ├─ scripts/smoke.mjs         # headless-Chrome end-to-end + offline test (cross-platform)
 ├─ scripts/bump-cache.mjs    # npm run bump:cache → sw.js cache version++
 ├─ tools/icon.html           # source of the PNG app icons
@@ -164,7 +169,7 @@ Any other static host works too — the build uses a relative base (`base: './'`
 
 ## Automated checks — `npm run test:smoke`
 
-16 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · manifest installable · service worker active · start + finish a session (this also exercises the notification-permission flow) · history persisted to `localStorage` · export/import controls present · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
+19 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · **NEXT preview present before start** · manifest installable · service worker active · **3-2-1 get-ready countdown appears on Start** · start + finish a session (this also exercises the notification-permission flow) · **session summary renders after finish** · history persisted to `localStorage` · export/import controls present · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
 
 The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci.yml`, screenshots uploaded as artifacts) and gates the Pages deploy.
 

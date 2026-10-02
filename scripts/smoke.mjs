@@ -132,6 +132,13 @@ try {
   });
   check('service worker active', swActive);
 
+  // Dismiss the install banner so screenshots show the full preferences card.
+  await page.evaluate(() => {
+    document
+      .querySelector('[aria-label="Dismiss install suggestion"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await sleep(200);
   await page.screenshot({ path: join(SHOTS, 'timer-screen.png') });
 
   // ---- 5. run a session end-to-end ----------------------------------
@@ -168,6 +175,13 @@ try {
     () => !!document.querySelector('[aria-label="Session summary"]')
   );
   check('session summary shows after finish', hasSummary);
+
+  // Screenshot the payoff screen for the README.
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Timer'))?.click();
+  });
+  await sleep(300);
+  await page.screenshot({ path: join(SHOTS, 'session-summary.png') });
 
   // presets tab screenshot
   await page.evaluate(() => {
