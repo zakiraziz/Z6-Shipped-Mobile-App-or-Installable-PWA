@@ -169,7 +169,7 @@ Any other static host works too — the build uses a relative base (`base: './'`
 
 ## Automated checks — `npm run test:smoke`
 
-19 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · **NEXT preview present before start** · manifest installable · service worker active · **3-2-1 get-ready countdown appears on Start** · start + finish a session (this also exercises the notification-permission flow) · **session summary renders after finish** · history persisted to `localStorage` · export/import controls present · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
+20 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · **NEXT preview present before start** · manifest installable · service worker active · **3-2-1 get-ready countdown appears on Start** · start + finish a session (this also exercises the notification-permission flow) · **session summary renders after finish** · history persisted to `localStorage` · export/import controls present · **EMOM builtin + duplicate control actually rendered** · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
 
 The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci.yml`, screenshots uploaded as artifacts) and gates the Pages deploy.
 

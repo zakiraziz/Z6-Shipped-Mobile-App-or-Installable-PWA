@@ -193,6 +193,15 @@ try {
     return labels.some((t) => t.includes('Export')) && labels.some((t) => t.includes('Import'));
   });
   check('presets export/import controls present', hasIo);
+  // Prove the new preset features actually rendered (EMOM builtin + duplicate)
+  const presetFeatures = await page.evaluate(() => ({
+    emom: (document.body.innerText || '').includes('EMOM 10'),
+    duplicate: !!document.querySelector('[aria-label^="Duplicate"]'),
+  }));
+  check(
+    'EMOM builtin + duplicate control on presets',
+    presetFeatures.emom && presetFeatures.duplicate
+  );
   await page.screenshot({ path: join(SHOTS, 'presets-screen.png') });
 
   // history tab screenshot (with the session we just finished)
