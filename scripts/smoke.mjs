@@ -211,6 +211,53 @@ try {
   await sleep(300);
   await page.screenshot({ path: join(SHOTS, 'history-screen.png') });
 
+  // #20 receive + #18 reorder round-trip: open a share link, accept it,
+  // then confirm the new custom preset unlocks reorder controls.
+  const shareToken = Buffer.from(
+    JSON.stringify({ id: 'shared-grit', name: 'Shared Grit', workSec: 45, restSec: 15, rounds: 6 }),
+    'utf8'
+  ).toString('base64url');
+  await page.goto(`${BASE}?p=${shareToken}`, { waitUntil: 'networkidle0', timeout: 20000 });
+  let shareOfferShown = true;
+  try {
+    await page.waitForFunction(() => (document.body.innerText || '').includes('Shared: Shared Grit'), {
+      timeout: 5000,
+    });
+  } catch {
+    shareOfferShown = false;
+  }
+  check('shared ?p= link shows import offer', shareOfferShown);
+
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Add')?.click();
+  });
+  await sleep(300);
+  const customAdded = await page.evaluate(() => {
+    const customs = JSON.parse(localStorage.getItem('beep.presets.v1') || '[]');
+    return Array.isArray(customs) && customs.some((p) => p.name === 'Shared Grit');
+  });
+  check('accepted shared preset persisted as custom', customAdded);
+
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => (b.textContent || '').includes('Presets'))?.click();
+  });
+  await sleep(300);
+  const reorderPresent = !!(await page.$('[aria-label^="Move "]'));
+  check('reorder controls present for custom presets', reorderPresent);
+
+  // #9–#12: preference chips must be visible on the timer card
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => (b.textContent || '').includes('Timer'))?.click();
+  });
+  await sleep(300);
+  const prefsVisible = await page.evaluate(() => {
+    const text = document.body.innerText || '';
+    return ['Big numbers', 'Halfway chime', 'Voice cues', 'Left-handed'].every((label) =>
+      text.includes(label)
+    );
+  });
+  check('preference chips visible (big/halfway/voice/lefty)', prefsVisible);
+
   check('no console/page errors (online phase)', errors.length === 0, errors.join(' | '));
 
   // ---- 7. SW UPDATE FLOW -------------------------------------------
