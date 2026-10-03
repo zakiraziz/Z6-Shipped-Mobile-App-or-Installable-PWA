@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cueCountdown, cueFinish, cueHalfway, cuePhaseChange } from '../lib/cues';
 import { resumeAudio } from '../lib/sound';
+import { clearSession, readSession, writeSession } from '../lib/session-store';
 import { buildSegments, presetTotalMs } from '../lib/presets';
 import type { Preset, Settings, TimerStatus } from '../types';
 import type { Segment } from '../types';
@@ -45,11 +46,51 @@ export function useIntervalTimer(
   onCompleteRef.current = onComplete;
   const presetNameRef = useRef(preset.name);
   presetNameRef.current = preset.name;
+  const presetRef = useRef(preset);
+  presetRef.current = preset;
+  const statusRef = useRef<TimerStatus>('idle');
 
   const anchorRef = useRef({ at: 0, base: 0 });
   const prevRef = useRef(0);
   const lastTickAtRef = useRef(0);
   const doneRef = useRef(false);
+  /** #1: set by restore(), consumed by the preset-change effect if a switch follows. */
+  const pendingRestoreRef = useRef<number | null>(null);
+  const lastPersistRef = useRef(0);
+  const firstRunRef = useRef(true);
+
+  /**
+   * #1: persist the in-flight session (throttled to ~1/s) so a tab kill or
+   * force-quit can be resumed. Only while a session is actually in flight.
+   */
+  const persistNow = useCallback(() => {
+    const state = statusRef.current;
+    if (state !== 'running' && state !== 'paused') return;
+    const ms = prevRef.current;
+    if (ms < 1000) return;
+    const current = presetRef.current;
+    writeSession({
+      presetId: current.id,
+      presetName: current.name,
+      workSec: current.workSec,
+      restSec: current.restSec,
+      rounds: current.rounds,
+      elapsedMs: Math.round(ms),
+    });
+  }, []);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') persistNow();
+    };
+    const onPageHide = () => persistNow();
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [persistNow]);
 
   const locate = useCallback(
     (ms: number): Location => {
@@ -74,6 +115,7 @@ export function useIntervalTimer(
       prevRef.current = finalMs;
       setElapsed(finalMs);
       setStatus('finished');
+      clearSession(); // #1: a logged session is nothing to resume
       cueFinish(settingsRef.current, {
         presetName: presetNameRef.current,
         elapsedMs: finalMs,
@@ -84,15 +126,86 @@ export function useIntervalTimer(
     [totalMs]
   );
 
+  /** #1: put the engine at a saved position and run (used by the resume card). */
+  const applyRestore = useCallback((ms: number, max: number) => {
+    const clamped = Math.max(0, Math.min(ms, max));
+    doneRef.current = false;
+    prevRef.current = clamped;
+    setElapsed(clamped);
+    anchorRef.current = { at: performance.now(), base: clamped };
+    lastTickAtRef.current = performance.now();
+    setStatus('running');
+  }, []);
 
-  // Reset whenever the identity/shape of the active preset changes.
+  const restore = useCallback(
+    (ms: number) => {
+      // Remember it: if a preset switch follows, the effect below re-applies
+      // the position against the new (correct) total.
+      pendingRestoreRef.current = ms;
+      applyRestore(ms, totalMs);
+    },
+    [applyRestore, totalMs]
+  );
+
+  useEffect(() => {
+    const stored = readSession();
+    if (!stored) return;
+    const samePreset =
+      stored.presetId === preset.id &&
+      stored.workSec === preset.workSec &&
+      stored.restSec === preset.restSec &&
+      stored.rounds === preset.rounds;
+    if (!samePreset) {
+      clearSession();
+      return;
+    }
+    const clampedMs = Math.max(0, Math.min(stored.elapsedMs, totalMs));
+    if (clampedMs <= 0) {
+      clearSession();
+      return;
+    }
+    pendingRestoreRef.current = clampedMs;
+    setStatus('paused');
+    setElapsed(clampedMs);
+    prevRef.current = clampedMs;
+    doneRef.current = false;
+    anchorRef.current = { at: performance.now(), base: clampedMs };
+    lastTickAtRef.current = performance.now();
+    firstRunRef.current = false;
+  }, [preset.id, preset.rounds, preset.restSec, preset.workSec, totalMs]);
+
+  statusRef.current = status;
+
+  // Reset whenever the identity/shape of the active preset changes — unless a
+  // resume is pending, in which case re-apply the saved position instead.
   const presetKey = `${preset.id}|${preset.workSec}|${preset.restSec}|${preset.rounds}`;
   useEffect(() => {
+    const pending = pendingRestoreRef.current;
+    pendingRestoreRef.current = null;
+    if (pending !== null) {
+      applyRestore(pending, totalMs);
+      firstRunRef.current = false;
+      return;
+    }
     setStatus('idle');
     setElapsed(0);
     prevRef.current = 0;
     doneRef.current = false;
-  }, [presetKey]);
+    // A real preset switch abandons the old session (mount must not wipe it).
+    if (!firstRunRef.current) clearSession();
+    firstRunRef.current = false;
+  }, [presetKey, totalMs, applyRestore]);
+
+  useEffect(() => {
+    if (!settings.autoPause) return;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden' && status === 'running') {
+        setStatus('paused');
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [settings.autoPause, status]);
 
   // Main loop — a plain interval, NOT rAF: it keeps firing in a backgrounded
   // tab (rAF stops entirely). Each tick replays EVERY segment boundary crossed
@@ -178,6 +291,12 @@ export function useIntervalTimer(
       prevRef.current = ms;
       setElapsed(ms);
 
+      // #1: throttled session snapshot — survives a kill mid-workout.
+      if (now - lastPersistRef.current >= 1000) {
+        lastPersistRef.current = now;
+        persistNow();
+      }
+
       if (ms >= totalMs) {
         complete({ completed: true, elapsedMs: totalMs });
         return;
@@ -191,7 +310,7 @@ export function useIntervalTimer(
       window.clearInterval(intervalId);
       window.clearTimeout(boundaryTimeout);
     };
-  }, [status, totalMs, segments, locate, complete, preset.rounds]);
+  }, [status, totalMs, segments, locate, complete, preset.rounds, persistNow]);
 
   const start = useCallback(() => {
     if (status === 'running') return;
@@ -223,6 +342,7 @@ export function useIntervalTimer(
     setElapsed(0);
     prevRef.current = 0;
     doneRef.current = false;
+    clearSession();
   }, []);
 
   const skip = useCallback(() => {
@@ -276,6 +396,7 @@ export function useIntervalTimer(
     reset,
     skip,
     finish,
+    restore,
   };
 }
 

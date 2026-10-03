@@ -5,6 +5,7 @@ import { usePersistentState } from './hooks/usePersistentState';
 import { useIntervalTimer, type TimerApi } from './hooks/useIntervalTimer';
 import type { HistoryEntry, Preset, Settings } from './types';
 
+
 /** newest 200 sessions are kept */
 const MAX_HISTORY = 200;
 
@@ -16,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
   bigNumbers: false,
   voice: false,
   leftHanded: false,
+  autoPause: false,
+  volume: 0.7,
 };
 
 type AppState = {
@@ -27,8 +30,11 @@ type AppState = {
   moveCustomPreset: (id: string, direction: -1 | 1) => void;
   history: HistoryEntry[];
   clearHistory: () => void;
+  /** #18 label a saved session ("Legs day") */
+  updateHistoryEntry: (id: string, patch: Partial<HistoryEntry>) => void;
   settings: Settings;
   toggleSetting: (key: keyof Settings) => void;
+  updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   timer: TimerApi;
 };
 
@@ -97,6 +103,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const clearHistory = useCallback(() => setHistory([]), [setHistory]);
 
+  const updateHistoryEntry = useCallback(
+    (id: string, patch: Partial<HistoryEntry>) =>
+      setHistory((current) =>
+        current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry))
+      ),
+    [setHistory]
+  );
+
   const handleTimerComplete = useCallback(
     (info: { completed: boolean; elapsedMs: number }) => {
       addHistory({
@@ -107,6 +121,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         elapsedSeconds: Math.round(info.elapsedMs / 1000),
         rounds: activePreset.rounds,
         completed: info.completed,
+        // #7 "Run again" needs the full shape, not just the name
+        workSec: activePreset.workSec,
+        restSec: activePreset.restSec,
       });
     },
     [addHistory, activePreset]
@@ -114,9 +131,22 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const timer = useIntervalTimer(activePreset, mergedSettings, handleTimerComplete);
 
-  const toggleSetting = useCallback(
-    (key: keyof Settings) => setSettings((current) => ({ ...current, [key]: !current[key] })),
+  const updateSetting = useCallback(
+    <K extends keyof Settings>(key: K, value: Settings[K]) => {
+      setSettings((current) => ({ ...DEFAULT_SETTINGS, ...current, [key]: value }));
+    },
     [setSettings]
+  );
+
+  const toggleSetting = useCallback(
+    (key: keyof Settings) => {
+      if (key === 'volume') {
+        updateSetting(key, mergedSettings.volume > 0 ? 0 : 0.7);
+        return;
+      }
+      setSettings((current) => ({ ...DEFAULT_SETTINGS, ...current, [key]: !current[key] }));
+    },
+    [mergedSettings.volume, updateSetting, setSettings]
   );
 
   const value = useMemo<AppState>(
@@ -129,8 +159,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       moveCustomPreset,
       history,
       clearHistory,
+      updateHistoryEntry,
       settings: mergedSettings,
       toggleSetting,
+      updateSetting,
       timer,
     }),
     [
@@ -142,8 +174,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       moveCustomPreset,
       history,
       clearHistory,
+      updateHistoryEntry,
       mergedSettings,
       toggleSetting,
+      updateSetting,
       timer,
     ]
   );

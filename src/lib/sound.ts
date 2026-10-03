@@ -1,3 +1,5 @@
+import { isSaveDataEnabled } from './platform';
+
 /**
  * All cues are synthesised with the Web Audio API — no audio files, so every
  * beep works offline. The AudioContext is created/unlocked on the first user
@@ -24,8 +26,15 @@ function audio(): AudioContext | null {
  * Unlock audio from inside the first user gesture (Start tap). The zero-length
  * buffer "blip" marks the context as user-activated — iOS requires this before
  * it will let the page make sound later (e.g. after backgrounding).
+ *
+ * #15 note: taken literally, "skip priming when Save-Data is on" would disable
+ * iOS audio entirely (the blip *is* the unlock), and the buffer is one sample
+ * with zero network cost. So the safe subset is implemented: with Save-Data on
+ * we skip the whole audio stack only when the user has sound switched OFF,
+ * which is the one case priming buys nothing at all.
  */
-export function primeAudio(): void {
+export function primeAudio(soundEnabled = true): void {
+  if (!soundEnabled && isSaveDataEnabled()) return;
   const ac = audio();
   if (!ac) return;
   try {
@@ -70,25 +79,29 @@ function tone(frequency: number, durationMs: number, delayMs = 0, volume = 0.12)
 /**
  * Audio half of the cue system — vibration patterns and notifications live in
  * lib/cues.ts so each channel can be tuned independently.
+ * Every play* takes the user's 0–1 volume; gain is capped so a square wave at
+ * full volume stays listenable rather than painful.
  */
-export function playCountdown(): void {
-  tone(880, 90);
+const MAX_GAIN = 0.3;
+
+export function playCountdown(volume = 0.5): void {
+  tone(880, 90, 0, MAX_GAIN * volume);
 }
 
-export function playPhaseChange(): void {
-  tone(660, 110);
-  tone(990, 160, 140);
+export function playPhaseChange(volume = 0.5): void {
+  tone(660, 110, 0, MAX_GAIN * volume);
+  tone(990, 160, 140, MAX_GAIN * volume);
 }
 
-export function playFinish(): void {
-  tone(660, 140);
-  tone(880, 140, 170);
-  tone(1180, 300, 340);
+export function playFinish(volume = 0.5): void {
+  tone(660, 140, 0, MAX_GAIN * volume);
+  tone(880, 140, 170, MAX_GAIN * volume);
+  tone(1180, 300, 340, MAX_GAIN * volume);
 }
 
 /** Distinct two-note chirp for the optional halfway cue. */
-export function playHalfway(): void {
-  tone(1200, 80);
-  tone(1600, 100, 95);
+export function playHalfway(volume = 0.5): void {
+  tone(1200, 80, 0, MAX_GAIN * volume);
+  tone(1600, 100, 95, MAX_GAIN * volume);
 }
 

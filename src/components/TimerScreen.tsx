@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BellOff, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } from 'lucide-react';
 import { formatClock } from '../lib/format';
-import { cueCountdown } from '../lib/cues';
+import { cueCountdown, testHaptics, testSound } from '../lib/cues';
 import { getNotificationState, requestNotifyPermissionOnce } from '../lib/notify';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { buildShareUrl } from '../lib/presets-io';
@@ -15,7 +15,8 @@ const secondaryButton =
   'flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 transition active:scale-95 disabled:opacity-30 disabled:active:scale-100';
 
 export function TimerScreen() {
-  const { presets, activePreset, selectPreset, timer, settings, toggleSetting } = useAppState();
+  const { presets, activePreset, selectPreset, timer, settings, toggleSetting, updateSetting } =
+    useAppState();
   const { status } = timer;
 
   const [notifyState, setNotifyState] = useState<NotificationPermission | 'unsupported'>(() =>
@@ -285,6 +286,53 @@ export function TimerScreen() {
             on={settings.leftHanded}
             onClick={() => toggleSetting('leftHanded')}
           />
+          <PrefChip
+            label="Auto-pause"
+            on={settings.autoPause}
+            onClick={() => toggleSetting('autoPause')}
+          />
+        </div>
+
+        <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
+            <label htmlFor="beep-volume" className="font-medium">
+              Volume
+            </label>
+            <span className="tabular-nums">{Math.round(settings.volume * 100)}%</span>
+          </div>
+          <input
+            id="beep-volume"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.volume}
+            onChange={(event) => updateSetting('volume', Number(event.target.value))}
+            className="h-2 w-full cursor-pointer accent-lime-400"
+            aria-label="Volume"
+          />
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => testSound(settings)}
+            className="flex-1 rounded-full border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 transition active:scale-95"
+          >
+            Test sound
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const ok = testHaptics();
+              if (!ok) {
+                window.alert('This device does not support vibration cues.');
+              }
+            }}
+            className="flex-1 rounded-full border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 transition active:scale-95"
+          >
+            Test haptics
+          </button>
         </div>
 
         <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-slate-500">

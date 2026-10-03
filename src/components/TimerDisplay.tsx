@@ -54,8 +54,16 @@ export function TimerDisplay({
     round === rounds && rounds > 1 && (status === 'running' || status === 'paused');
 
   return (
-    <div className="mt-6 flex flex-col items-center">
-      <div className="relative h-72 w-72">
+    <div className="mt-6 flex flex-col items-center" role="timer" aria-label="Session timer">
+      <div
+        className="relative h-72 w-72"
+        role="progressbar"
+        aria-live="polite"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.max(0, Math.min(100, Math.round(totalProgress * 100)))}
+        aria-valuetext={`${formatClock(totalRemainingMs)} remaining`}
+      >
         <svg viewBox="0 0 320 320" className="h-full w-full -rotate-90">
           <circle cx="160" cy="160" r={RADIUS} fill="none" stroke="#1e293b" strokeWidth="10" />
           <circle

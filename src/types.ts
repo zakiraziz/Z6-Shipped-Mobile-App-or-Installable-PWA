@@ -33,6 +33,11 @@ export type HistoryEntry = {
   rounds: number;
   /** true when the timer ran to the end by itself */
   completed: boolean;
+  /** #7 "Run again" needs the shape, not just the name (older entries lack it) */
+  workSec?: number;
+  restSec?: number;
+  /** #18 optional label the user gives the session ("Legs day") */
+  label?: string;
 };
 
 export type Settings = {
@@ -46,4 +51,8 @@ export type Settings = {
   voice: boolean;
   /** swap skip/reset sides for left-handed thumb reach */
   leftHanded: boolean;
+  /** #4 pause automatically when the app goes to the background (default off) */
+  autoPause: boolean;
+  /** #5 beep loudness, 0–1 (mute stays the header toggle) */
+  volume: number;
 };
