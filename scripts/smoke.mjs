@@ -111,6 +111,22 @@ try {
   const hasNext = await page.evaluate(() => (document.body.innerText || '').includes('NEXT'));
   check('NEXT preview shows upcoming phase', hasNext);
 
+  // Round 3: preference controls + assistive progress surface (#4/#5/#13/#14)
+  const prefs = await page.evaluate(() => ({
+    volume: !!document.querySelector('#beep-volume'),
+    testSound: [...document.querySelectorAll('button')].some((b) => b.textContent === 'Test sound'),
+    testHaptics: [...document.querySelectorAll('button')].some(
+      (b) => b.textContent === 'Test haptics'
+    ),
+    autoPause: (document.body.innerText || '').includes('Auto-pause'),
+    progressbar: !!document.querySelector('[role="progressbar"][aria-valuenow]'),
+  }));
+  check(
+    'preference controls present (volume / test sound / test haptics / auto-pause)',
+    prefs.volume && prefs.testSound && prefs.testHaptics && prefs.autoPause
+  );
+  check('timer exposes aria-valuenow progress', prefs.progressbar);
+
   // ---- 3. manifest ---------------------------------------------------
   const manifest = await page.evaluate(async () => {
     const response = await fetch('manifest.webmanifest');
@@ -124,6 +140,20 @@ try {
       !!manifest.start_url,
     manifest ? `${manifest.icons?.length ?? 0} icons` : 'not found'
   );
+  check('manifest shortcuts for long-press launch (#20)', (manifest?.shortcuts?.length ?? 0) >= 3);
+
+  // #9/#10: cold-load skeleton + dark iOS launch screens in the served shell
+  const shellHtml = await page.evaluate(() => fetch('./').then((r) => r.text()));
+  const splashLinks = (shellHtml.match(/apple-touch-startup-image/g) || []).length;
+  check(
+    'cold-load skeleton + iOS splash links in shell',
+    shellHtml.includes('boot-skeleton') && splashLinks >= 3,
+    `${splashLinks} splash links`
+  );
+  const splashOk = await page.evaluate(
+    () => fetch('./splash/splash-1170x2532.png').then((r) => r.ok && r.headers.get('content-type')?.startsWith('image'))
+  );
+  check('splash launch image served', !!splashOk);
 
   // ---- 4. service worker --------------------------------------------
   const swActive = await page.evaluate(async () => {
@@ -260,6 +290,158 @@ try {
 
   check('no console/page errors (online phase)', errors.length === 0, errors.join(' | '));
 
+  // ---- Round 3: stop confirmation + resume-after-kill (#1/#3) ----
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Timer'))?.click();
+  });
+  await sleep(300);
+  await page.click('button[aria-label="Start timer"]');
+  await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 9000 });
+  await sleep(5600); // past the 5s confirm line; persisted at 1s granularity
+
+  // #11: status bar tints warm during the work phase
+  const themeDuringWork = await page.$eval('meta[name="theme-color"]', (m) =>
+    m.getAttribute('content')
+  );
+  check(
+    'theme-color tints during work phase (#11)',
+    themeDuringWork === '#7c2d12',
+    String(themeDuringWork)
+  );
+
+  // #3: finishing a live session must confirm, never destroy silently
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Finish'))?.click();
+  });
+  await sleep(300);
+  check(
+    'stop confirmation appears for a live session (#3)',
+    await page.evaluate(() => (document.body.innerText || '').includes('Stop this session?'))
+  );
+
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Keep going'))?.click();
+  });
+  await sleep(300);
+  const afterKeepGoing = await page.evaluate(() => ({
+    dialog: (document.body.innerText || '').includes('Stop this session?'),
+    running: !!document.querySelector('button[aria-label="Pause timer"]'),
+  }));
+  check('"Keep going" closes the dialog and resumes', !afterKeepGoing.dialog && afterKeepGoing.running);
+
+  // #1: kill the page mid-session → the saved session must come back
+  await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
+  let resumeShown = true;
+  try {
+    await page.waitForFunction(() => (document.body.innerText || '').includes('Resume session?'), {
+      timeout: 6000,
+    });
+  } catch {
+    resumeShown = false;
+  }
+  check('resume card after killing the page mid-session (#1)', resumeShown);
+
+  const resumeText = await page.evaluate(
+    () => document.querySelector('[aria-label="Resume session"]')?.innerText ?? ''
+  );
+  const clock = resumeText.match(/(\d+):(\d+)/);
+  const shownSecs = clock ? Number(clock[1]) * 60 + Number(clock[2]) : -1;
+  check('resume card shows the real elapsed position', shownSecs >= 4 && shownSecs <= 15, `${shownSecs}s`);
+
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Resume')?.click();
+  });
+  await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 6000 });
+  check('resume restarts the session where it left off (#1)', true);
+  // Finish again (elapsed >5s → confirm) and complete through the dialog
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Finish'))?.click();
+  });
+  await sleep(300);
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Stop & save'))?.click();
+  });
+  await sleep(500);
+  check(
+    'stop confirmation completes the session (#3)',
+    await page.evaluate(() => !!document.querySelector('[aria-label="Session summary"]'))
+  );
+
+  // #18: name the session where it ended, and prove it reaches history
+  const labelOk = await page.evaluate(async () => {
+    const input = document.querySelector('input[placeholder^="Name this session"]');
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    if (!setter) return false;
+    setter.call(input, 'Smoke test day');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // React's onBlur is wired to bubbling focusout, not the non-bubbling blur.
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const rows = JSON.parse(localStorage.getItem('beep.history.v1') || '[]');
+    return rows[0]?.label === 'Smoke test day';
+  });
+  check('session label persists to history (#18)', labelOk);
+
+  // #7/#8/#16/#19: history usability
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('History'))?.click();
+  });
+  await sleep(300);
+  const historyUi = await page.evaluate(() => ({
+    runAgain: !!document.querySelector('[aria-label$="again"]'),
+    filter: !!document.querySelector('select[aria-label="Filter history by preset"]'),
+    weekly: (document.body.innerText || '').includes('This week:'),
+    exportBtn: [...document.querySelectorAll('button')].some((b) => b.textContent.includes('Export')),
+    label: (document.body.innerText || '').includes('Smoke test day'),
+  }));
+  check(
+    'history: run-again + filter + weekly total + export + label',
+    historyUi.runAgain &&
+      historyUi.filter &&
+      historyUi.weekly &&
+      historyUi.exportBtn &&
+      historyUi.label,
+    JSON.stringify(historyUi)
+  );
+
+  await page.evaluate(() => {
+    document
+      .querySelector('[aria-label$="again"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await sleep(400);
+  check(
+    '"Run again" returns to the timer with the preset loaded (#7)',
+    await page.evaluate(() => {
+      const timerTab = [...document.querySelectorAll('nav button')].find((b) =>
+        b.textContent.includes('Timer')
+      );
+      return timerTab?.getAttribute('aria-current') === 'page';
+    })
+  );
+
+  // #20: a home-screen shortcut jumps straight into the 3-2-1
+  await page.goto(`${BASE}?preset=hiit&autostart=1`, {
+    waitUntil: 'networkidle0',
+    timeout: 20000,
+  });
+  let shortcutCountdown = true;
+  try {
+    await page.waitForFunction(() => (document.body.innerText || '').includes('GET READY'), {
+      timeout: 5000,
+    });
+  } catch {
+    shortcutCountdown = false;
+  }
+  check('shortcut link launches straight into 3-2-1 (#20)', shortcutCountdown);
+  await page.evaluate(() => {
+    document
+      .querySelector('button[aria-label="Cancel countdown"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await sleep(300);
+
   // ---- 7. SW UPDATE FLOW -------------------------------------------
   // Simulates a release: changed asset in dist/ + new sw.js bytes (what
   // `npm run bump:cache` + rebuild produce). The update toast must appear,
@@ -279,6 +461,10 @@ try {
   stopServer(server);
   server = startServer();
   await sleep(4000);
+  const serverBack = await fetch(BASE)
+    .then((r) => r.ok)
+    .catch((e) => `ERR ${e.message}`);
+  console.log('  [diag] server after restart:', serverBack);
 
   await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
   let toastShown = true;
@@ -289,6 +475,23 @@ try {
     );
   } catch {
     toastShown = false;
+  }
+  if (!toastShown) {
+    const diag = await page
+      .evaluate(async () => {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const swlog = /** @type {any} */ (window).__swlog ?? [];
+        return {
+          url: location.href.slice(0, 70),
+          controller: !!navigator.serviceWorker.controller,
+          active: !!reg?.active,
+          installing: !!reg?.installing,
+          waiting: !!reg?.waiting,
+          swlog,
+        };
+      })
+      .catch((e) => ({ err: String(e) }));
+    console.log('  [diag] toast missing:', JSON.stringify(diag));
   }
   check('update toast appears when sw.js bytes change', toastShown);
 

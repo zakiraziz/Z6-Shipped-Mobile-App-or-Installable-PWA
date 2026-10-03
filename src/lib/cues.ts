@@ -12,6 +12,7 @@ const COUNTDOWN_PATTERN = [45];
 const FINISH_PATTERN = [200, 90, 200, 90, 400];
 
 function buzz(pattern: number[]): void {
+  if (!gestureSeen) return; // no activation yet → the call is blocked anyway
   try {
     navigator.vibrate?.(pattern);
   } catch {

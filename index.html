@@ -19,9 +19,65 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>Beep — Offline Interval Timer</title>
+    <!-- #10 iOS launch screens — generated from tools/splash.html (dark, not white) -->
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 375px) and (device-height: 667px)"
+      href="./splash/splash-750x1334.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 375px) and (device-height: 812px)"
+      href="./splash/splash-1125x2436.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 390px) and (device-height: 844px)"
+      href="./splash/splash-1170x2532.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 393px) and (device-height: 852px)"
+      href="./splash/splash-1179x2556.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)"
+      href="./splash/splash-1242x2688.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)"
+      href="./splash/splash-828x1792.png"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      media="(device-width: 430px) and (device-height: 932px)"
+      href="./splash/splash-1290x2796.png"
+    />
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      #9 cold-load skeleton: the layout exists before React mounts, so the app
+      never flashes an empty state. Replaced the moment createRoot().render().
+    -->
+    <div id="root">
+      <div
+        id="boot-skeleton"
+        style="min-height: 100vh; background: #020617; padding: 24px 16px; box-sizing: border-box; font-family: system-ui, sans-serif;"
+      >
+        <div style="height: 20px; width: 140px; border-radius: 6px; background: #1e293b"></div>
+        <div
+          style="height: 240px; width: 240px; border: 10px solid #1e293b; border-radius: 50%; margin: 36px auto 0; box-sizing: border-box;"
+        ></div>
+        <div
+          style="height: 16px; width: 55%; border-radius: 6px; background: #1e293b; margin: 36px auto 0;"
+        ></div>
+        <div
+          style="height: 56px; width: 56px; background: #1e293b; border-radius: 50%; margin: 40px auto 0;"
+        ></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

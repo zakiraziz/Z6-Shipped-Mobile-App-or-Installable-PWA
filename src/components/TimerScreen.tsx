@@ -3,6 +3,7 @@ import { BellOff, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } 
 import { formatClock } from '../lib/format';
 import { cueCountdown, testHaptics, testSound } from '../lib/cues';
 import { getNotificationState, requestNotifyPermissionOnce } from '../lib/notify';
+import { hasWakeLock } from '../lib/platform';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { buildShareUrl } from '../lib/presets-io';
 import { primeAudio } from '../lib/sound';
@@ -14,7 +15,15 @@ import { TimerDisplay } from './TimerDisplay';
 const secondaryButton =
   'flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 transition active:scale-95 disabled:opacity-30 disabled:active:scale-100';
 
-export function TimerScreen() {
+type Props = {
+  /** #20: launched from a home-screen shortcut → start the 3-2-1 immediately */
+  autoStart?: boolean;
+  onAutoStartDone?: () => void;
+  /** #3: routed through App's stop confirmation when the session is real */
+  onRequestStop?: () => void;
+};
+
+export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props) {
   const { presets, activePreset, selectPreset, timer, settings, toggleSetting, updateSetting } =
     useAppState();
   const { status } = timer;
@@ -24,6 +33,10 @@ export function TimerScreen() {
   );
   const [notifyHintDismissed, setNotifyHintDismissed] = usePersistentState(
     'beep.notify.hint-dismissed',
+    false
+  );
+  const [wakeHintDismissed, setWakeHintDismissed] = usePersistentState(
+    'beep.wakelock.hint-dismissed',
     false
   );
   /** #1: 3-2-1 get-ready countdown runs before the engine starts. */
@@ -61,6 +74,33 @@ export function TimerScreen() {
   useEffect(() => {
     setGetReady(null);
   }, [activePreset.id]);
+
+  // #20: a home-screen shortcut opened with ?autostart=1 — countdown now.
+  // Deps: [autoStart], NOT [] — App reads the query string in its own effect,
+  // which runs AFTER this child mounts, so the flag flips from false → true
+  // and this must react to that change.
+  useEffect(() => {
+    if (autoStart && status === 'idle' && getReady === null) setGetReady(3);
+    onAutoStartDone?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
+
+  // #11: tint the status bar with the current phase (warm = work, cool = rest).
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const color =
+      getReady !== null || status === 'idle'
+        ? '#020617'
+        : status === 'running'
+          ? timer.segment.kind === 'work'
+            ? '#7c2d12'
+            : '#075985'
+          : status === 'paused'
+            ? '#1e293b'
+            : '#065f46';
+    meta.setAttribute('content', color);
+  }, [getReady, status, timer.segment.kind]);
 
   const handlePrimary = () => {
     primeAudio(); // gesture → unlock Web Audio (incl. iOS activation blip)
@@ -213,7 +253,9 @@ export function TimerScreen() {
       {(status === 'running' || status === 'paused') && (
         <div className="mt-5 flex justify-center">
           <button
-            onClick={timer.finish}
+            onClick={() =>
+              onRequestStop && timer.elapsed >= 5000 ? onRequestStop() : timer.finish()
+            }
             className="flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-rose-400/60 hover:text-rose-300 active:scale-95"
           >
             <Square size={13} /> Finish &amp; save session
@@ -223,6 +265,24 @@ export function TimerScreen() {
 
       {/* #5: the payoff screen — what the session actually was */}
       {status === 'finished' && <SessionSummary />}
+
+      {/* #12: honest fallback when the platform has no Wake Lock */}
+      {!hasWakeLock() && !wakeHintDismissed && (status === 'running' || status === 'paused') && (
+        <div className="mt-5 flex items-start gap-2 rounded-2xl border border-sky-400/30 bg-sky-400/5 px-4 py-3">
+          <Zap size={14} className="mt-0.5 shrink-0 text-sky-300" />
+          <p className="flex-1 text-xs leading-relaxed text-sky-200/90">
+            This browser can't hold the screen on, so it may dim mid-session. Keep tapping or use
+            your phone's auto-bright setting.
+          </p>
+          <button
+            onClick={() => setWakeHintDismissed(true)}
+            aria-label="Dismiss wake lock hint"
+            className="shrink-0 rounded p-1 text-sky-300/70 transition hover:bg-sky-400/10"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Denied-permission UX: say it once, explain the fallback, allow dismiss */}
       {notifyState === 'denied' && !notifyHintDismissed && (

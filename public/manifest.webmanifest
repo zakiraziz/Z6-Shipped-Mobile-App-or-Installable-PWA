@@ -30,5 +30,35 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start Tabata",
+      "short_name": "Tabata",
+      "description": "20s work, 10s rest, 8 rounds",
+      "url": "./?preset=tabata&autostart=1",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Start HIIT 45/15",
+      "short_name": "HIIT",
+      "description": "45s work, 15s rest, 10 rounds",
+      "url": "./?preset=hiit&autostart=1",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Start Boxing rounds",
+      "short_name": "Boxing",
+      "description": "3min rounds, 1min rest, 5 rounds",
+      "url": "./?preset=boxing&autostart=1",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Start Pomodoro",
+      "short_name": "Pomodoro",
+      "description": "25min focus, 5min break, 4 rounds",
+      "url": "./?preset=pomodoro&autostart=1",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

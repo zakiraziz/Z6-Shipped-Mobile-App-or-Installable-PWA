@@ -11,25 +11,33 @@ export function registerServiceWorker(): void {
     navigator.serviceWorker
       .register(swUrl)
       .then((registration) => {
-        // A new SW can already be WAITING by the time we attach listeners
-        // (fast network / reload race) — announce it immediately too.
-        const announceIfWaiting = () => {
+        const announce = () => {
           if (registration.waiting && navigator.serviceWorker.controller) {
             window.dispatchEvent(new CustomEvent('beep-sw-update', { detail: registration }));
           }
         };
-        announceIfWaiting();
 
-        registration.addEventListener('updatefound', () => {
-          const installing = registration.installing;
-          if (!installing) return;
-          installing.addEventListener('statechange', () => {
-            const isInstalled = installing.state === 'installed';
-            // A controller means this is an update, not the first install.
-            if (isInstalled && navigator.serviceWorker.controller) {
+        // Race-safe: the update can be in ANY state by the time we attach —
+        //  · already waiting        → announce now
+        //  · still installing       → watch its statechange (updatefound may
+        //                             have fired before this .then ran)
+        //  · not started yet        → updatefound listener below
+        const watchInstalling = (worker: ServiceWorker | null) => {
+          if (!worker) return;
+          const onStateChange = () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
               window.dispatchEvent(new CustomEvent('beep-sw-update', { detail: registration }));
             }
-          });
+          };
+          worker.addEventListener('statechange', onStateChange);
+          onStateChange(); // may have installed in the gap
+        };
+
+        announce();
+        watchInstalling(registration.installing);
+
+        registration.addEventListener('updatefound', () => {
+          watchInstalling(registration.installing);
         });
       })
       .catch((error) => {

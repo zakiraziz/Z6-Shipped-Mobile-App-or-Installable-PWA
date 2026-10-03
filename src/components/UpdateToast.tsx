@@ -16,6 +16,39 @@ export function UpdateToast() {
     return () => window.removeEventListener('beep-sw-update', onUpdate);
   }, []);
 
+  // The event can fire BEFORE this component attaches its listener (a fast
+  // update check beats React's effect flush) — so poll as a backstop. The
+  // event stays for the fast path; the poll makes the result race-proof.
+  useEffect(() => {
+    if (waiting) return;
+    const check = () => {
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((registration) => {
+          if (registration?.waiting && navigator.serviceWorker.controller) {
+            setWaiting(registration);
+          }
+        })
+        .catch(() => undefined);
+    };
+    check();
+    const id = window.setInterval(check, 1500);
+    return () => window.clearInterval(id);
+  }, [waiting]);
+
+  // A new SW announcing it took control → ask for a fresh update check.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'SW_ACTIVATED') return;
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((registration) => registration?.update())
+        .catch(() => undefined);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
   if (!waiting) return null;
 
   const applyUpdate = () => {

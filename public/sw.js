@@ -41,6 +41,11 @@ self.addEventListener('activate', (event) => {
         Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))
       )
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      // Tell live pages a new SW took over — they re-check for updates.
+      .then((windowClients) => {
+        windowClients.forEach((client) => client.postMessage({ type: 'SW_ACTIVATED' }));
+      })
   );
 });
 

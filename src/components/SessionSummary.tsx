@@ -11,11 +11,19 @@ import { useAppState } from '../state';
  * sessions report honest numbers too.
  */
 export function SessionSummary() {
-  const { activePreset, timer } = useAppState();
+  const { activePreset, timer, history, updateHistoryEntry } = useAppState();
   const [shareStatus, setShareStatus] = useState('');
+  /** #18: name the session right where it ended. */
+  const latest = history[0];
+  const [label, setLabel] = useState(latest?.label ?? '');
 
   const { workMs, restMs, roundsCompleted } = splitSession(timer.segments, timer.elapsed);
   const completed = timer.elapsed >= timer.totalMs;
+
+  const saveLabel = () => {
+    if (!latest) return;
+    updateHistoryEntry(latest.id, { label: label.trim().slice(0, 40) });
+  };
 
   const share = async () => {
     const url = buildShareUrl(activePreset);
@@ -73,6 +81,20 @@ export function SessionSummary() {
           </div>
         ))}
       </div>
+
+      {/* #18: optional label — makes History scannable later */}
+      <label className="mt-3 block">
+        <span className="sr-only">Name this session</span>
+        <input
+          type="text"
+          value={label}
+          maxLength={40}
+          placeholder="Name this session (optional) — e.g. Legs day"
+          onChange={(event) => setLabel(event.target.value)}
+          onBlur={saveLabel}
+          className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm outline-none transition placeholder:text-slate-600 focus:border-lime-400"
+        />
+      </label>
 
       {shareStatus && (
         <p className="mt-2 text-xs text-lime-300" role="status">
