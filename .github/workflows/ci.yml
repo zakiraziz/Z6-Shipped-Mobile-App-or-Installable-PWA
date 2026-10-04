@@ -56,3 +56,39 @@ jobs:
           name: screenshots
           path: screenshots/
           if-no-files-found: ignore
+
+  # Round 4 (#3): the README calls the harness "cross-platform" and the Chrome
+  # resolver has a darwin branch — but only Ubuntu ever exercised either.
+  # This closes that: the same 48 checks on a real macOS runner.
+  # It deliberately does NOT run the checksum gates: sha256sum does not exist
+  # on macOS (it is shasum -a 256), and those gates guard the release path,
+  # which runs on ubuntu in deploy.yml. This job asserts behaviour, not bytes.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Audit README feature claims against the smoke checks
+        run: npm run test:claims
+      # Portable checksum dialect: sha256sum does not exist on macOS.
+      - name: Record pristine build-input checksums
+        run: |
+          find src public -type f -print0 | sort -z | xargs -0 shasum -a 256 > inputs.sha256
+          shasum -a 256 index.html package.json vite.config.ts tsconfig.json tailwind.config.js postcss.config.js >> inputs.sha256
+      - name: End-to-end + offline smoke test (headless Chrome)
+        run: npm run test:smoke
+        env:
+          CHROME_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - name: Assert build inputs are pristine (src/, public/, config)
+        run: |
+          find src public -type f -print0 | sort -z | xargs -0 shasum -a 256 > inputs.after.sha256
+          shasum -a 256 index.html package.json vite.config.ts tsconfig.json tailwind.config.js postcss.config.js >> inputs.after.sha256
+          if ! diff -u inputs.sha256 inputs.after.sha256; then
+            echo "::error::build inputs were modified by tests on macOS — failing fast"
+            exit 1
+          fi
