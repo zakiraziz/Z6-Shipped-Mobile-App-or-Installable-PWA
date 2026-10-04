@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:claims": "node scripts/audit-claims.mjs",
     "bump:cache": "node scripts/bump-cache.mjs"
   },
   "dependencies": {

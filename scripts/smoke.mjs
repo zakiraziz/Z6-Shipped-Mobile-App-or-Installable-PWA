@@ -109,7 +109,53 @@ try {
 
   // #2: the upcoming phase is visible before anything starts
   const hasNext = await page.evaluate(() => (document.body.innerText || '').includes('NEXT'));
-  check('NEXT preview shows upcoming phase', hasNext);
+  check('NEXT preview shows upcoming phase [claim:next-preview]', hasNext);
+
+  // #3: the ring itself is the tap target — a big hit area, not a small icon.
+  // Asserted on the DOM, not by eyeballing a screenshot: the vision channel
+  // already lied once (stale screenshots), so size claims get measured.
+  const ring = await page.evaluate(() => {
+    const el = document.querySelector('[role="button"][aria-label="Start timer"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), clickable: getComputedStyle(el).cursor };
+  });
+  check(
+    'the ring itself is a large tap target (≥200px, pointer cursor) [claim:ring-tap]',
+    !!ring && ring.w >= 200 && ring.h >= 200 && ring.clickable === 'pointer',
+    ring ? `${ring.w}×${ring.h}px cursor:${ring.clickable}` : 'not found'
+  );
+
+  // Reduced-motion must actually neutralise transitions — asserting only that
+  // the media query exists would pass even if the CSS block were deleted.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const reducedMotion = await page.evaluate(() => {
+    const ring = document.querySelector('div[role="button"]');
+    return {
+      matches: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      duration: ring ? getComputedStyle(ring).transitionDuration : null,
+    };
+  });
+  check(
+    'prefers-reduced-motion neutralises transitions [claim:a11y-media]',
+    // Chrome serialises 0.01ms as "1e-05s" — compare numerically, never by string.
+    reducedMotion.matches && parseFloat(reducedMotion.duration) > 0 && parseFloat(reducedMotion.duration) < 0.05,
+    `matches=${reducedMotion.matches} transition-duration=${reducedMotion.duration}`
+  );
+  await page.emulateMediaFeatures([]);
+
+  // #14: screen-reader announcements on every phase/status change. The live
+  // region must exist AND carry non-empty text — an empty aria-live div
+  // announces nothing, which is the classic way this claim silently rots.
+  const live = await page.evaluate(() => {
+    const el = document.querySelector('[aria-live="assertive"]');
+    return el ? (el.textContent || '').trim() : '';
+  });
+  check(
+    'assertive live region exists and carries announcement text [claim:aria-live]',
+    live.length > 0,
+    JSON.stringify(live.slice(0, 60))
+  );
 
   // Round 3: preference controls + assistive progress surface (#4/#5/#13/#14)
   const prefs = await page.evaluate(() => ({
@@ -122,7 +168,7 @@ try {
     progressbar: !!document.querySelector('[role="progressbar"][aria-valuenow]'),
   }));
   check(
-    'preference controls present (volume / test sound / test haptics / auto-pause)',
+    'preference controls present (volume / test sound / test haptics / auto-pause) [claim:prefs]',
     prefs.volume && prefs.testSound && prefs.testHaptics && prefs.autoPause
   );
   check('timer exposes aria-valuenow progress', prefs.progressbar);
@@ -133,7 +179,7 @@ try {
     return response.ok ? response.json() : null;
   });
   check(
-    'manifest installable (standalone, ≥2 icons, start_url)',
+    'manifest installable (standalone, ≥2 icons, start_url) [claim:manifest]',
     !!manifest &&
       manifest.display === 'standalone' &&
       (manifest.icons?.length ?? 0) >= 2 &&
@@ -146,7 +192,7 @@ try {
   const shellHtml = await page.evaluate(() => fetch('./').then((r) => r.text()));
   const splashLinks = (shellHtml.match(/apple-touch-startup-image/g) || []).length;
   check(
-    'cold-load skeleton + iOS splash links in shell',
+    'cold-load skeleton + iOS splash links in shell [claim:launch-polish]',
     shellHtml.includes('boot-skeleton') && splashLinks >= 3,
     `${splashLinks} splash links`
   );
@@ -155,12 +201,22 @@ try {
   );
   check('splash launch image served', !!splashOk);
 
+  // GitHub Pages serves 404.html for unknown paths; it must redirect back to the
+  // app root or a mistyped URL dead-ends on a blank page.
+  const notFoundOk = await page.evaluate(() =>
+    fetch('./404.html')
+      .then((r) => r.text())
+      .then((html) => /location\.replace/.test(html))
+      .catch(() => false)
+  );
+  check('404.html insurance redirect is served [claim:spa-404]', notFoundOk);
+
   // ---- 4. service worker --------------------------------------------
   const swActive = await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready;
     return !!registration.active;
   });
-  check('service worker active', swActive);
+  check('service worker active [claim:sw]', swActive);
 
   // Dismiss the install banner so screenshots show the full preferences card.
   await page.evaluate(() => {
@@ -182,9 +238,9 @@ try {
   } catch {
     countdownShown = false;
   }
-  check('3-2-1 get-ready countdown appears on Start', countdownShown);
+  check('3-2-1 get-ready countdown appears on Start [claim:countdown]', countdownShown);
   await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 9000 });
-  check('timer starts after countdown (pause button visible)', true);
+  check('timer starts after countdown (pause button visible) [claim:engine]', true);
   await sleep(1200);
 
   await page.evaluate(() => {
@@ -204,7 +260,7 @@ try {
   const hasSummary = await page.evaluate(
     () => !!document.querySelector('[aria-label="Session summary"]')
   );
-  check('session summary shows after finish', hasSummary);
+  check('session summary shows after finish [claim:summary]', hasSummary);
 
   // Screenshot the payoff screen for the README.
   await page.evaluate(() => {
@@ -222,14 +278,14 @@ try {
     const labels = [...document.querySelectorAll('button')].map((b) => b.textContent || '');
     return labels.some((t) => t.includes('Export')) && labels.some((t) => t.includes('Import'));
   });
-  check('presets export/import controls present', hasIo);
+  check('presets export/import controls present [claim:preset-io]', hasIo);
   // Prove the new preset features actually rendered (EMOM builtin + duplicate)
   const presetFeatures = await page.evaluate(() => ({
     emom: (document.body.innerText || '').includes('EMOM 10'),
     duplicate: !!document.querySelector('[aria-label^="Duplicate"]'),
   }));
   check(
-    'EMOM builtin + duplicate control on presets',
+    'EMOM builtin + duplicate control on presets [claim:presets]',
     presetFeatures.emom && presetFeatures.duplicate
   );
   await page.screenshot({ path: join(SHOTS, 'presets-screen.png') });
@@ -329,6 +385,27 @@ try {
   }));
   check('"Keep going" closes the dialog and resumes', !afterKeepGoing.dialog && afterKeepGoing.running);
 
+  // The other half of the #3 guardrail: Android's back button mid-session must
+  // pause and confirm, never silently discard. Safe to simulate because the
+  // app re-pushes its state inside popstate — if that guard ever regresses,
+  // this navigates away and the check fails loudly instead of hanging.
+  const urlBeforeBack = page.url();
+  await page.evaluate(() => window.history.back());
+  await sleep(600);
+  const backGuard = await page.evaluate(() => ({
+    dialog: (document.body.innerText || '').includes('Stop this session?'),
+  }));
+  check(
+    'back button mid-session pauses and confirms instead of discarding [claim:back-guard]',
+    backGuard.dialog && page.url() === urlBeforeBack,
+    page.url() === urlBeforeBack ? 'no navigation' : `navigated to ${page.url()}`
+  );
+  // Leave the session running for the resume test below.
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Keep going'))?.click();
+  });
+  await sleep(400);
+
   // #1: kill the page mid-session → the saved session must come back
   await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
   let resumeShown = true;
@@ -384,6 +461,38 @@ try {
   check('session label persists to history (#18)', labelOk);
 
   // #7/#8/#16/#19: history usability
+  // Seed two entries with very different durations first. Without this the
+  // smoke's own sessions are all similar length, so asserting "the sort changed
+  // the order" would be luck, not a check — the kind of green that means
+  // nothing. Reload so the app re-reads localStorage into state.
+  await page.evaluate(() => {
+    const key = 'beep.history.v1';
+    const now = Date.now();
+    const existing = JSON.parse(localStorage.getItem(key) || '[]');
+    const seed = (id, presetName, elapsedSeconds, daysAgo) => ({
+      id,
+      presetId: `seed-${id}`,
+      presetName,
+      label: '',
+      rounds: 8,
+      completed: true,
+      elapsedSeconds,
+      workSec: 20,
+      restSec: 10,
+      startedAt: now - daysAgo * 86400000,
+      finishedAt: now - daysAgo * 86400000,
+    });
+    localStorage.setItem(
+      key,
+      JSON.stringify([
+        seed('seed-short', 'Tabata', 30, 3),
+        seed('seed-long', 'HIIT 45/15', 900, 2),
+        ...existing,
+      ])
+    );
+  });
+  await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
+  await sleep(400);
   await page.evaluate(() => {
     [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('History'))?.click();
   });
@@ -394,15 +503,44 @@ try {
     weekly: (document.body.innerText || '').includes('This week:'),
     exportBtn: [...document.querySelectorAll('button')].some((b) => b.textContent.includes('Export')),
     label: (document.body.innerText || '').includes('Smoke test day'),
+    // The streak card renders only when streak >= 1; every session this run
+    // finished is dated today, so it must show a real (non-zero) day count.
+    streak: /\b[1-9]\d*-day streak\b/.test(document.body.innerText || ''),
+    // #8 sort toggle — asserted by its stateful aria-label, then flipped so the
+    // claim covers the control *and* that it actually re-orders.
+    sortToggle: !!document.querySelector('[aria-label^="Sorted newest first"]'),
   }));
   check(
-    'history: run-again + filter + weekly total + export + label',
+    'history: run-again + filter + weekly total + export + label (#8/#16/#19)',
     historyUi.runAgain &&
       historyUi.filter &&
       historyUi.weekly &&
       historyUi.exportBtn &&
       historyUi.label,
     JSON.stringify(historyUi)
+  );
+  check('streak counter renders a real day count [claim:streak]', historyUi.streak);
+  check('history sort toggle exists (#8)', historyUi.sortToggle);
+
+  // Flip the sort and prove the order actually changes — a control that exists
+  // but does nothing would pass a presence check forever.
+  const readOrder = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[aria-label$="again"]')].map((b) =>
+        (b.closest('li')?.innerText || b.parentElement?.innerText || '').slice(0, 40)
+      )
+    );
+  const orderBefore = await readOrder();
+  await page.evaluate(() => document.querySelector('[aria-label^="Sorted newest first"]')?.click());
+  await sleep(400);
+  const orderAfter = await readOrder();
+  const sortFlipped = await page.evaluate(() =>
+    !!document.querySelector('[aria-label^="Sorted longest first"]')
+  );
+  check(
+    'history sort toggle flips newest/longest (#8/#19)',
+    sortFlipped && JSON.stringify(orderBefore) !== JSON.stringify(orderAfter),
+    `${sortFlipped ? 'label flipped' : 'toggle did not respond'}; order ${sortFlipped && JSON.stringify(orderBefore) !== JSON.stringify(orderAfter) ? 'changed' : 'unchanged'}`
   );
 
   await page.evaluate(() => {
@@ -489,7 +627,7 @@ try {
       .catch((e) => ({ err: String(e) }));
     console.log('  [diag] toast missing:', JSON.stringify(diag));
   }
-  check('update toast appears when sw.js bytes change', toastShown);
+  check('update toast appears when sw.js bytes change [claim:update-toast]', toastShown);
 
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }),

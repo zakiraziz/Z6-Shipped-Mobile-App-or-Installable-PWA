@@ -18,8 +18,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # The claim "0 unbacked claims" is itself a claim — this enforces it.
+      # Runs before the slow browser suite so a bad README fails in seconds.
+      - name: Audit README feature claims against the smoke checks
+        run: npm run test:claims
       - name: Record pristine dist checksums
         run: find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.sha256
+      # Round 4: the gate covered dist/ only; hash the build INPUTS too, so a
+      # test that mutates src/ or public/ (e.g. a stray sw.js write) fails.
+      - name: Record pristine build-input checksums
+        run: |
+          find src public -type f -print0 | sort -z | xargs -0 sha256sum > inputs.sha256
+          sha256sum index.html package.json vite.config.ts tsconfig.json tailwind.config.js postcss.config.js >> inputs.sha256
       - name: End-to-end + offline smoke test (headless Chrome)
         run: npm run test:smoke
         env:
@@ -29,6 +39,14 @@ jobs:
           find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist.after.sha256
           if ! diff -u dist.sha256 dist.after.sha256; then
             echo "::error::dist/ was modified by tests — failing fast"
+            exit 1
+          fi
+      - name: Assert build inputs are pristine (src/, public/, config)
+        run: |
+          find src public -type f -print0 | sort -z | xargs -0 sha256sum > inputs.after.sha256
+          sha256sum index.html package.json vite.config.ts tsconfig.json tailwind.config.js postcss.config.js >> inputs.after.sha256
+          if ! diff -u inputs.sha256 inputs.after.sha256; then
+            echo "::error::build inputs were modified by tests — failing fast"
             exit 1
           fi
       - name: Upload README screenshots
