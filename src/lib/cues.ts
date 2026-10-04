@@ -3,6 +3,18 @@ import { formatClock } from './format';
 import { clearCueNotifications, showCueNotification } from './notify';
 import { playCountdown, playFinish, playHalfway, playPhaseChange } from './sound';
 
+/**
+ * Chrome blocks navigator.vibrate() until the frame has user activation — and
+ * logs a console.error when you call it blind. That happens when a manifest
+ * shortcut auto-starts the countdown (no tap yet), where vibration could never
+ * work anyway. Track activation so we only call it when it can succeed.
+ */
+let gestureSeen = false;
+
+export function noteUserGesture(): void {
+  gestureSeen = true;
+}
+
 /** Distinct haptics per phase: work = 3 short pulses, rest = 1 long pulse. */
 const PULSE: Record<Segment['kind'], number[]> = {
   work: [60, 45, 60, 45, 60],

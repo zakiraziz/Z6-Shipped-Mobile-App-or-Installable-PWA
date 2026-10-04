@@ -27,6 +27,9 @@
 - **NEXT preview** under the ring ("NEXT · Rest 0:10 · round 2") so you can prepare for what's coming
 - **The whole ring is a tap target** — start / pause / resume with a sweaty thumb, no precision aiming
 - **Session summary at the end**: total time, rounds completed, honest work/rest split, and one-tap Share (Web Share API → clipboard fallback)
+- **Resume after a kill** (#1): the in-flight session is snapshotted to `localStorage` (~1/s, plus on `pagehide`), so a force-quit, an OS tab eviction or a crash offers *"Resume session? 4:12 in · round 3 of 8"* on the next launch. Resume is deliberately **frozen** at the saved position — never the "you came back three hours later and the session instantly completed" surprise
+- **Stop guardrails**: finishing a live session (>5s) confirms first, and Android's back button pauses + confirms instead of silently discarding the workout
+- **History that scales**: Run again (recreates or reuses the preset), filter by preset, sort newest/longest, weekly totals, JSON export, and optional session labels ("Legs day")
 - **Background cues that can't be missed:** when the screen isn't visible, every phase change and the finish fire a persistent service-worker notification (`requireInteraction`, `tag` + `renotify` → exactly one cue at a time, replaced per phase). Permission is requested once, on the first Start tap — never nags.
 - **Drift-free catch-up scheduler:** the engine runs on absolute timestamps with a plain interval (rAF stops entirely when backgrounded) and *replays every boundary crossed* — after the OS throttles a slept phone, cues fire with a "N phases passed" summary instead of vanishing silently. Each tick also arms a precise `setTimeout` at the next boundary (an exact wake, not a polled guess), and if a >5 s gap contained crossed phases the catch-up notification is forced **even after you unlock straight into the app** — those cues were physically missed, so the notification says so
 - **6 built-in presets (Tabata, HIIT 45/15, Boxing rounds, Pomodoro, Sprint 30/90, EMOM 10)** + create / edit / delete custom presets, duplicate any built-in as an editable copy, and reorder customs with touch-friendly ↑/↓ (order persists)
@@ -34,7 +37,7 @@
 - Session history with stats (sessions, this week, total time) — stored on the device (`localStorage`, `navigator.storage.persist()` requested so it survives storage pressure) — plus a **streak counter** ("3-day streak in a row")
 - Countdown beeps for 3/2/1, a distinct Web Audio fanfare per phase, and **distinct haptics per phase** (work = 3 short pulses, rest = 1 long) plus sound / vibration toggles in the header
 - Screen-reader announcements on every phase/status change (`aria-live="assertive"`)
-- **Preferences where they're used** (chips on the timer card): Big numbers (96px digits for across-the-room viewing), Halfway chime (opt-in midpoint cue), Voice cues ("Work, round 3 of 8" via `speechSynthesis`), Left-handed layout (controls swap sides)
+- **Preferences where they're used** (chips on the timer card): Big numbers (96px digits for across-the-room viewing), Halfway chime (opt-in midpoint cue), Voice cues ("Work, round 3 of 8" via `speechSynthesis`), Left-handed layout (controls swap sides), Auto-pause when backgrounded — plus a **volume slider** and **Test sound / Test haptics** buttons to check the cues before a real session
 - Denied-permission UX: the Timer screen says **once** (dismissible) that notifications are off and what still works — no silent failure
 - "Offline" pill appears the moment the network drops
 
@@ -44,6 +47,9 @@
 - Update toast ("New version available → Refresh") when a new build is published
 - Install banner: native **Install** button on Chromium, Share → Add to Home Screen on iOS — dismissal is remembered and the banner re-offers after 5 sessions
 - `prefers-reduced-motion` + `prefers-contrast` support, and a `404.html` SPA insurance redirect for GitHub Pages
+- **Launch polish**: a cold-load skeleton (no empty-state flash), dark **iOS launch screens** (`apple-touch-startup-image`, 7 device sizes, generated from `tools/splash.html`), and a status-bar tint per phase (`theme-color`: warm for work, cool for rest)
+- **Home-screen shortcuts** (`shortcuts` in the manifest): long-press the installed icon → *Start Tabata / HIIT 45/15 / Boxing / Pomodoro* → straight into the 3-2-1
+- **Honest fallback when Wake Lock is missing** (older Safari): a one-line dismissible hint instead of a silently dimming screen
 
 > **The claim this version makes:** _"Beep reliably cues you even when your phone is locked in your pocket — via Web Notifications with `requireInteraction` and a drift-free absolute-time scheduler that catches up on missed phase boundaries after the OS throttles a backgrounded tab."_
 >
@@ -115,7 +121,7 @@ npm run dev -- --host
 | 6 | Lock again, sleep through 3+ phases | On unlock: catch-up notification says "N phases passed" | 5 s gap threshold; boundary-crossing replay |
 | 7 | Feel work vs rest haptic | Work = 3 short pulses, rest = 1 long, no double-fire | one `cuePhaseChange` per boundary |
 | 8 | Airplane mode, cold launch from home screen | App loads from SW cache, timer runs | SW install/activate caching |
-| 9 | Toggle each preference chip mid-session | Big numbers fills the ring with 96px digits · Halfway chime chirps at a segment midpoint · Voice cues speaks the next phase ("Work, round 2 of 8") without overlap · Left-handed swaps reset/skip sides | `settings.*` in `lib/cues.ts` + `TimerDisplay`; `toggleSetting` in `state.tsx` |
+| 9 | Toggle each preference chip / control mid-session | Big numbers fills the ring with 96px digits · Halfway chime chirps at a segment midpoint · Voice cues speaks the next phase ("Work, round 2 of 8") without overlap · Left-handed swaps reset/skip sides · **Auto-pause** pauses the timer when you background the app · volume slider changes beep loudness · **Test sound**/**Test haptics** fire on demand | `settings.*` in `lib/cues.ts` + `TimerDisplay`; `updateSetting` in `state.tsx` |
 
 **iOS — Safari ≥ 16.4, installed via Share → Add to Home Screen**
 
@@ -127,7 +133,8 @@ npm run dev -- --host
 | 4 | Return to the app | Audio resumes, ring shows no missed time | `visibilitychange → visible → resumeAudio()` |
 | 5 | Lock screen mid-session | **No notification expected** — Android gets real background cues; iOS is best-effort (installed PWAs ≥16.4 only, still limited) | this is the honest caveat above, not a bug |
 | 6 | Screen stays awake in foreground | Wake lock held, re-acquired after backgrounding | `wakeLock.request` + `.released` re-acquire |
-| 7 | Toggle each preference chip | Same behaviours as Android row 9 (iOS uses the system default voice for Voice cues) | `settings.*` in `lib/cues.ts` + `TimerDisplay` |
+| 7 | Toggle each preference chip / control | Same behaviours as Android row 9 (iOS uses the system default voice for Voice cues; vibration is Android-only) | `settings.*` in `lib/cues.ts` + `TimerDisplay` |
+| 8 | Kill the app mid-session, relaunch | "Resume session?" card appears with the right elapsed time and round; Resume continues from there, Discard clears it | `lib/session-store.ts`; `restore()` in `useIntervalTimer` |
 
 Tick the Definition of Done box after both tables pass.
 
@@ -152,7 +159,8 @@ Any other static host works too — the build uses a relative base (`base: './'`
 │  ├─ sw.js                  # SW: caching + notificationclick (hand-written)
 │  ├─ manifest.webmanifest   # install metadata
 │  ├─ 404.html               # GitHub Pages → app root redirect
-│  └─ icons/                 # 192 / 512 / maskable / apple-touch (rendered from tools/icon.html)
+│  ├─ icons/                 # 192 / 512 / maskable / apple-touch (rendered from tools/icon.html)
+│  └─ splash/                # iOS launch screens, 7 device sizes (rendered from tools/splash.html)
 ├─ src/
 │  ├─ App.tsx                # shell: tabs, wake lock, storage.persist, visibility handling
 │  ├─ state.tsx              # persistent state + timer wiring (React context)
@@ -162,16 +170,20 @@ Any other static host works too — the build uses a relative base (`base: './'`
 │  ├─ lib/notify.ts          # permission flow (ask once), SW notifications, cleanup
 │  ├─ lib/sound.ts           # Web Audio cues + iOS unlock / resume
 │  ├─ lib/presets-io.ts      # preset JSON import/export + ?p= share links
-│  └─ components/            # Timer (+ summary & preference chips), Presets, History, banners
+│  ├─ lib/session-store.ts   # interrupted-session snapshot (freeze + resume)
+│  ├─ lib/history-io.ts      # history JSON export
+│  ├─ lib/platform.ts        # capability probes (wake lock, save-data, haptics, speech)
+│  └─ components/            # Timer (+ summary, ResumeCard & preference chips), Presets, History, banners
 ├─ scripts/smoke.mjs         # headless-Chrome end-to-end + offline test (cross-platform)
 ├─ scripts/bump-cache.mjs    # npm run bump:cache → sw.js cache version++
 ├─ tools/icon.html           # source of the PNG app icons
+├─ tools/splash.html         # source of the iOS launch screens
 └─ .github/workflows/        # deploy.yml (test-then-deploy) + ci.yml (test on push/PR)
 ```
 
 ## Automated checks — `npm run test:smoke`
 
-24 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · **NEXT preview present before start** · manifest installable · service worker active · **3-2-1 get-ready countdown appears on Start** · start + finish a session (this also exercises the notification-permission flow) · **session summary renders after finish** · history persisted to `localStorage` · export/import controls present · **EMOM builtin + duplicate control actually rendered** · **share-link round trip (`?p=` → offer → accept → persisted → reorder controls appear)** · **preference chips visible** · **server killed → app reloads from cache → timer still runs** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) · and it regenerates the screenshots above.
+40 checks in real headless Chrome: app renders · zero console/page errors · no horizontal overflow at 390 px · **NEXT preview present before start** · manifest installable · service worker active · **3-2-1 get-ready countdown appears on Start** · start + finish a session (this also exercises the notification-permission flow) · **session summary renders after finish** · history persisted to `localStorage` · export/import controls present · **EMOM builtin + duplicate control actually rendered** · **share-link round trip (`?p=` → offer → accept → persisted → reorder controls appear)** · **start → kill the page mid-session → relaunch → the Resume card shows the real saved position → Resume continues from it, Discard clears it** · **finishing a live session confirms first ("Keep going" resumes, "Stop & save" completes)** · **a session label typed at the end of a session shows up on that session's history entry** · **history: Run again loads the preset into the timer, the filter narrows the list, the weekly total and Export button exist** · **preference chips visible** · **volume slider + Test sound / Test haptics controls, `aria-valuenow` on the ring** · **cold-load skeleton present and iOS splash links in the shell with the splash image actually served** · **`theme-color` tints during a live work phase** · **`?preset=…&autostart=1` (a manifest shortcut) launches straight into the 3-2-1** · **server killed → app reloads from cache → timer still runs → history survives** · **changed asset + changed sw.js bytes → update toast appears → Refresh serves the new file without a hard reload** (the exact path a `bump:cache` release takes) — and it regenerates the screenshots above.
 
 The same test runs on every push/PR in **GitHub Actions** (`.github/workflows/ci.yml`, screenshots uploaded as artifacts) and gates the Pages deploy.
 

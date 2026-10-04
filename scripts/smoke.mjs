@@ -461,10 +461,6 @@ try {
   stopServer(server);
   server = startServer();
   await sleep(4000);
-  const serverBack = await fetch(BASE)
-    .then((r) => r.ok)
-    .catch((e) => `ERR ${e.message}`);
-  console.log('  [diag] server after restart:', serverBack);
 
   await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
   let toastShown = true;
