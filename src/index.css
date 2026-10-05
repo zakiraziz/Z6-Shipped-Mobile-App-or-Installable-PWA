@@ -60,6 +60,22 @@ body {
   }
 }
 
+/* Toasts + the help sheet drop in from just under the header. */
+@keyframes beep-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-toast {
+  animation: beep-toast-in 180ms ease-out;
+}
+
 /* Accessibility: honour reduced-motion (kill the ring/button transitions) */
 @media (prefers-reduced-motion: reduce) {
   *,

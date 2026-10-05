@@ -8,9 +8,11 @@ import { presetSummary, presetTotalMs } from '../lib/presets';
 import { buildShareUrl } from '../lib/presets-io';
 import { primeAudio } from '../lib/sound';
 import { usePersistentState } from '../hooks/usePersistentState';
+import { useShortcuts } from '../hooks/useShortcuts';
 import { useAppState } from '../state';
 import { SessionSummary } from './SessionSummary';
 import { TimerDisplay } from './TimerDisplay';
+import { useToast } from './Toast';
 
 const secondaryButton =
   'flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 transition active:scale-95 disabled:opacity-30 disabled:active:scale-100';
@@ -42,6 +44,7 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
   /** #1: 3-2-1 get-ready countdown runs before the engine starts. */
   const [getReady, setGetReady] = useState<number | null>(null);
   const [shareStatus, setShareStatus] = useState('');
+  const toast = useToast();
 
   const chipRowRef = useRef<HTMLDivElement>(null);
   const [chipsOverflow, setChipsOverflow] = useState(false);
@@ -152,6 +155,9 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
     }
     window.setTimeout(() => setShareStatus(''), 2500);
   };
+
+  // Hardware keyboards: Space / S / R (the sheet lists them under `?`).
+  useShortcuts({ onPrimary: handlePrimary, onSkip: timer.skip, onReset: timer.reset });
 
   // Announced to screen readers on phase/status changes (not every tick).
   const announcement =
@@ -427,10 +433,7 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
           <button
             type="button"
             onClick={() => {
-              const ok = testHaptics();
-              if (!ok) {
-                window.alert('This device does not support vibration cues.');
-              }
+              if (!testHaptics()) toast.show('This device does not support vibration cues.');
             }}
             className="flex-1 rounded-full border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 transition active:scale-95"
           >

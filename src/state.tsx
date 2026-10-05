@@ -30,6 +30,8 @@ type AppState = {
   moveCustomPreset: (id: string, direction: -1 | 1) => void;
   history: HistoryEntry[];
   clearHistory: () => void;
+  /** Undo target for "clear history" — puts the snapshot back exactly as it was. */
+  restoreHistory: (entries: HistoryEntry[]) => void;
   /** #18 label a saved session ("Legs day") */
   updateHistoryEntry: (id: string, patch: Partial<HistoryEntry>) => void;
   settings: Settings;
@@ -103,6 +105,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const clearHistory = useCallback(() => setHistory([]), [setHistory]);
 
+  const restoreHistory = useCallback(
+    (entries: HistoryEntry[]) => setHistory(entries.slice(0, MAX_HISTORY)),
+    [setHistory]
+  );
+
   const updateHistoryEntry = useCallback(
     (id: string, patch: Partial<HistoryEntry>) =>
       setHistory((current) =>
@@ -159,6 +166,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       moveCustomPreset,
       history,
       clearHistory,
+      restoreHistory,
       updateHistoryEntry,
       settings: mergedSettings,
       toggleSetting,
@@ -174,6 +182,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       moveCustomPreset,
       history,
       clearHistory,
+      restoreHistory,
       updateHistoryEntry,
       mergedSettings,
       toggleSetting,

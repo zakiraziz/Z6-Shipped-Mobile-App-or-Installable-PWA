@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { AppStateProvider, useAppState } from './state';
 import { decodeSharedPreset } from './lib/presets-io';
 import { clearSession, readSession, type StoredSession } from './lib/session-store';
+import { formatClock } from './lib/format';
 import type { Preset } from './types';
 import { Header } from './components/Header';
 import { TabBar, type TabId } from './components/TabBar';
@@ -12,9 +13,14 @@ import { HistoryScreen } from './components/HistoryScreen';
 import { InstallBanner } from './components/InstallBanner';
 import { UpdateToast } from './components/UpdateToast';
 import { ResumeCard } from './components/ResumeCard';
+import { HelpSheet } from './components/HelpSheet';
+import { ToastProvider } from './components/Toast';
 import { useWakeLock } from './hooks/useWakeLock';
+import { useShortcuts } from './hooks/useShortcuts';
 import { clearCueNotifications } from './lib/notify';
 import { resumeAudio } from './lib/sound';
+
+const BASE_TITLE = 'Beep — Offline Interval Timer';
 
 function Shell() {
   const { timer, savePreset, selectPreset, presets, activePreset, settings } = useAppState();
@@ -30,6 +36,11 @@ function Shell() {
   const [stopConfirm, setStopConfirm] = useState(false);
   /** #20: launch shortcuts open with ?preset=…&autostart=1 */
   const [autoStart, setAutoStart] = useState(false);
+  /** Help sheet — header ? button and the `?` key both land here. */
+  const [helpOpen, setHelpOpen] = useState(false);
+  const openHelp = useCallback(() => setHelpOpen(true), []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+  const toggleHelp = useCallback(() => setHelpOpen((open) => !open), []);
 
   const timerRef = useRef(timer);
   timerRef.current = timer;
@@ -112,6 +123,31 @@ function Shell() {
   // Keep the screen awake while a session is running (Wake Lock API).
   useWakeLock(timer.status === 'running');
 
+  // `?` opens/closes help from anywhere; Space/S/R belong to the timer screen.
+  useShortcuts({ onToggleHelp: toggleHelp });
+
+  // The live countdown rides along in the browser tab title, so switching tabs
+  // (or another window on desktop) still shows how long is left.
+  useEffect(() => {
+    const status = timer.status;
+    if (status === 'running' || status === 'paused') {
+      const clock = formatClock(timer.segmentRemainingMs);
+      const phase = timer.segment.label.toUpperCase();
+      document.title =
+        status === 'running' ? `${clock} · ${phase} — Beep` : `⏸ ${clock} · ${phase} — Beep`;
+    } else {
+      document.title = BASE_TITLE;
+    }
+    return () => {
+      document.title = BASE_TITLE;
+    };
+  }, [timer.status, timer.segment.label, timer.segmentRemainingMs]);
+
+  // Switching tabs always starts at the top — landing mid-scroll is disorienting.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [tab]);
+
   useEffect(() => {
     // Ask the browser to treat our storage as persistent (harder to evict the
     // SW cache / history). Browsers grant silently or decline — no prompt.
@@ -185,7 +221,8 @@ function Shell() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
-      <Header />
+      <Header onHelp={openHelp} />
+      <HelpSheet open={helpOpen} onClose={closeHelp} />
       {resumeOffer && (
         <ResumeCard session={resumeOffer} onResume={resumeSession} onDiscard={discardSession} />
       )}
@@ -269,7 +306,9 @@ function Shell() {
 export default function App() {
   return (
     <AppStateProvider>
-      <Shell />
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
     </AppStateProvider>
   );
 }

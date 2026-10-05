@@ -1,11 +1,16 @@
-import { Volume2, VolumeX, Vibrate, VibrateOff, WifiOff } from 'lucide-react';
+import { HelpCircle, Volume2, VolumeX, Vibrate, VibrateOff, WifiOff } from 'lucide-react';
 import { useAppState } from '../state';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 const iconButton =
   'rounded-lg p-2 transition active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-lime-400/60';
 
-export function Header() {
+type Props = {
+  /** Opens the help sheet (also reachable with the `?` key). */
+  onHelp: () => void;
+};
+
+export function Header({ onHelp }: Props) {
   const { settings, toggleSetting } = useAppState();
   const online = useOnlineStatus();
 
@@ -33,6 +38,13 @@ export function Header() {
               Offline
             </span>
           )}
+          <button
+            onClick={onHelp}
+            aria-label="Help and shortcuts"
+            className={`${iconButton} text-slate-400 hover:text-slate-200`}
+          >
+            <HelpCircle size={18} />
+          </button>
           <button
             onClick={() => toggleSetting('sound')}
             aria-label={settings.sound ? 'Mute beeps' : 'Unmute beeps'}

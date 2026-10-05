@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { ArrowDownUp, Download, Flame, Play, Timer, Trash2 } from 'lucide-react';
+import { ArrowDownUp, Download, Flame, Play, Search, Timer, Trash2 } from 'lucide-react';
 import { formatDateTime, formatDuration, uid } from '../lib/format';
 import { serializeHistory } from '../lib/history-io';
 import type { HistoryEntry, Preset } from '../types';
 import type { TabId } from './TabBar';
 import { useAppState } from '../state';
+import { useToast } from './Toast';
 
 const statCard =
   'flex-1 rounded-2xl border border-slate-800 bg-slate-900/60 px-3 py-3 text-center';
@@ -17,10 +18,13 @@ type Props = {
 };
 
 export function HistoryScreen({ onNavigate }: Props) {
-  const { history, clearHistory, presets, savePreset, selectPreset } = useAppState();
+  const { history, clearHistory, restoreHistory, presets, savePreset, selectPreset } =
+    useAppState();
+  const toast = useToast();
   const [armed, setArmed] = useState(false);
   /** #8 filter + sort once the list outgrows "newest first" */
   const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'newest' | 'longest'>('newest');
   const [exportStatus, setExportStatus] = useState('');
 
@@ -52,9 +56,35 @@ export function HistoryScreen({ onNavigate }: Props) {
 
   const visible = useMemo(() => {
     const rows = filter === 'all' ? history : history.filter((e) => e.presetName === filter);
-    if (sort === 'newest') return rows;
-    return [...rows].sort((a, b) => b.elapsedSeconds - a.elapsedSeconds);
-  }, [history, filter, sort]);
+    const needle = query.trim().toLowerCase();
+    const matched = needle
+      ? rows.filter((e) => `${e.presetName} ${e.label ?? ''}`.toLowerCase().includes(needle))
+      : rows;
+    if (sort === 'newest') return matched;
+    return [...matched].sort((a, b) => b.elapsedSeconds - a.elapsedSeconds);
+  }, [history, filter, query, sort]);
+
+  const needle = query.trim();
+
+  /**
+   * Two deliberate taps (the second one armed), and even then the clear is
+   * reversible — a mistake costs one Undo, not a lost year of history.
+   */
+  const handleClear = () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    const snapshot = history;
+    clearHistory();
+    setArmed(false);
+    setQuery('');
+    setFilter('all');
+    toast.show(
+      `Cleared ${snapshot.length} session${snapshot.length === 1 ? '' : 's'} from this device`,
+      { action: { label: 'Undo', onClick: () => restoreHistory(snapshot) } }
+    );
+  };
 
   /** #19 export completes the export/import symmetry (presets already have it). */
   const handleExport = () => {
@@ -110,14 +140,7 @@ export function HistoryScreen({ onNavigate }: Props) {
               <Download size={13} /> {exportStatus || 'Export'}
             </button>
             <button
-              onClick={() => {
-                if (armed) {
-                  clearHistory();
-                  setArmed(false);
-                } else {
-                  setArmed(true);
-                }
-              }}
+              onClick={handleClear}
               onBlur={() => setArmed(false)}
               className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition ${
                 armed
@@ -178,6 +201,23 @@ export function HistoryScreen({ onNavigate }: Props) {
             {formatDuration(weekSeconds)}
           </p>
 
+          {/* free-text search — preset names and session labels */}
+          <div className="relative">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label="Search history"
+              placeholder="Search preset or label…"
+              className="w-full rounded-full border border-slate-700 bg-slate-900 py-2.5 pl-9 pr-3 text-sm text-slate-200 outline-none transition focus:border-lime-400 placeholder:text-slate-500"
+            />
+          </div>
+
           {/* #8: filter + sort */}
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -204,6 +244,23 @@ export function HistoryScreen({ onNavigate }: Props) {
             </button>
           </div>
 
+          {visible.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-700 p-6 text-center">
+              <Search size={24} className="mx-auto text-slate-600" />
+              <p className="mt-3 text-sm font-medium text-slate-300">
+                {needle ? `No sessions match “${needle}”` : 'No sessions match these filters'}
+              </p>
+              <button
+                onClick={() => {
+                  setQuery('');
+                  setFilter('all');
+                }}
+                className="mt-3 rounded-full border border-slate-700 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-lime-400/60 hover:text-lime-300 active:scale-95"
+              >
+                Clear search &amp; filter
+              </button>
+            </div>
+          ) : (
           <ul className="space-y-2.5">
             {visible.map((entry) => (
               <li
@@ -242,6 +299,7 @@ export function HistoryScreen({ onNavigate }: Props) {
               </li>
             ))}
           </ul>
+          )}
         </>
       )}
     </div>
