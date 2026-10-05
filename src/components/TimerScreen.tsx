@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BellOff, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } from 'lucide-react';
 import { formatClock } from '../lib/format';
 import { cueCountdown, testHaptics, testSound } from '../lib/cues';
@@ -42,6 +42,25 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
   /** #1: 3-2-1 get-ready countdown runs before the engine starts. */
   const [getReady, setGetReady] = useState<number | null>(null);
   const [shareStatus, setShareStatus] = useState('');
+
+  const chipRowRef = useRef<HTMLDivElement>(null);
+  const [chipsOverflow, setChipsOverflow] = useState(false);
+  /** Track whether the chip row has content hidden to the right, so the fade
+      only appears when it means something. Re-runs when presets change. */
+  useEffect(() => {
+    const el = chipRowRef.current;
+    if (!el) return;
+    const sync = () => setChipsOverflow(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+    sync();
+    el.addEventListener('scroll', sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    for (const child of Array.from(el.children)) ro.observe(child);
+    return () => {
+      el.removeEventListener('scroll', sync);
+      ro.disconnect();
+    };
+  }, [presets]);
 
   const locked = status === 'running' || status === 'paused' || getReady !== null;
 
@@ -151,9 +170,26 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
       <div aria-live="assertive" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
-      {/* preset chips */}
-
-      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      {/* preset chips — overflow must be VISIBLE: `no-scrollbar` here made a
+          scrolling row look like a clipped one on desktop. The fade only shows
+          when there is genuinely more content to the right. */}
+      <div className="relative -mx-4">
+        <div
+          ref={chipRowRef}
+          role="group"
+          aria-label="Presets"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+              event.preventDefault();
+              chipRowRef.current?.scrollBy({
+                left: event.key === 'ArrowRight' ? 160 : -160,
+                behavior: 'smooth',
+              });
+            }
+          }}
+          className="chip-scroll flex gap-2 overflow-x-auto px-4 pb-1"
+        >
         {presets.map((preset) => {
           const isActive = preset.id === activePreset.id;
           return (
@@ -171,6 +207,13 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
             </button>
           );
         })}
+        </div>
+        {chipsOverflow && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-slate-950 to-transparent"
+          />
+        )}
       </div>
 
       {/* #3: the whole ring is one big tap target (start / pause / resume) */}

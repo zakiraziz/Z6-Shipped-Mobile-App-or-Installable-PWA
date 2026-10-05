@@ -107,6 +107,57 @@ try {
   );
   check('no horizontal overflow @390px', overflow <= 0, `delta ${overflow}px`);
 
+  // ---- 2b. the preset rail is honestly scrollable ---------------------
+  // Regression: the rail carried `no-scrollbar`, hiding every affordance, so
+  // chips past the right edge read as clipped rather than scrollable. Seeded
+  // with enough presets to force REAL overflow at 390px — otherwise this
+  // passes on a viewport wide enough for the default three, which is the
+  // "it passed on luck" failure mode.
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'beep.presets.v1',
+      JSON.stringify(
+        Array.from({ length: 14 }, (_, i) => ({
+          id: `rail${i}`,
+          name: `Rail preset number ${i + 1}`,
+          workSec: 30,
+          restSec: 10,
+          rounds: 4,
+          builtin: false,
+        }))
+      )
+    );
+  });
+  await page.reload({ waitUntil: 'networkidle0' });
+  await sleep(300);
+  const rail = await page.evaluate(() => {
+    // Derive the rail from a seeded chip's PARENT rather than a styling class,
+    // so this stays valid if the class names change. Both the old and new
+    // markup put the scrollable container directly around the chips.
+    const chip = Array.from(document.querySelectorAll('button')).find((b) =>
+      (b.textContent || '').startsWith('Rail preset number 1')
+    );
+    const el = chip ? chip.parentElement : null;
+    if (!el) return { found: false };
+    const before = el.scrollLeft;
+    el.scrollLeft = 9999;
+    return {
+      found: true,
+      overflows: el.scrollWidth - el.clientWidth > 4,
+      scrolled: el.scrollLeft > before,
+      barWidth: getComputedStyle(el).scrollbarWidth,
+      fadeShown: Boolean(el.parentElement.querySelector('[aria-hidden="true"]')),
+    };
+  });
+  check('preset rail overflows @390px (seeded, not lucky)', rail.found && rail.overflows);
+  check('preset rail actually scrolls horizontally', rail.found && rail.scrolled);
+  check('preset rail keeps a visible scrollbar', rail.found && rail.barWidth !== 'none', `scrollbar-width: ${rail.barWidth}`);
+  check('preset rail signals "more to the right"', rail.found && rail.fadeShown);
+  // Drop the seeded presets so later checks see a normal set.
+  await page.evaluate(() => localStorage.removeItem('beep.presets.v1'));
+  await page.reload({ waitUntil: 'networkidle0' });
+  await sleep(200);
+
   // #2: the upcoming phase is visible before anything starts
   const hasNext = await page.evaluate(() => (document.body.innerText || '').includes('NEXT'));
   check('NEXT preview shows upcoming phase [claim:next-preview]', hasNext);

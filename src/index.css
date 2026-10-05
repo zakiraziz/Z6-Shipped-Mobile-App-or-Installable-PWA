@@ -38,6 +38,23 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  /* Horizontal rails stay VISIBLE. Hiding the scrollbar made a scrolling
+     preset row read as a clipped one on desktop, with nothing to hint that
+     the chips past the edge were reachable at all. */
+  .chip-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(51 65 85) transparent;
+  }
+  .chip-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .chip-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .chip-scroll::-webkit-scrollbar-thumb {
+    background-color: rgb(51 65 85);
+    border-radius: 9999px;
+  }
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
   }
