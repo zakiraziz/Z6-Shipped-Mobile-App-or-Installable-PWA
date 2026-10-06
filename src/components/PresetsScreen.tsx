@@ -6,10 +6,12 @@ import { formatClock, uid } from '../lib/format';
 import type { Preset } from '../types';
 import { useAppState } from '../state';
 import { PresetForm, type PresetDraft } from './PresetForm';
+import { useToast } from './Toast';
 
 export function PresetsScreen() {
   const { presets, activePreset, selectPreset, savePreset, deletePreset, moveCustomPreset } =
     useAppState();
+  const toast = useToast();
   const [editing, setEditing] = useState<PresetDraft | null>(null);
   const [ioStatus, setIoStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,6 +30,21 @@ export function PresetsScreen() {
   };
 
   const customPresets = presets.filter((preset) => !preset.builtin);
+
+  /** Deleting is one tap today — so it has to be one Undo tomorrow too. */
+  const removePreset = (preset: Preset) => {
+    const wasActive = activePreset.id === preset.id;
+    deletePreset(preset.id);
+    toast.show(`Deleted “${preset.name}”`, {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          savePreset(preset);
+          if (wasActive) selectPreset(preset.id);
+        },
+      },
+    });
+  };
 
   const handleExport = () => {
     if (customPresets.length === 0) {
@@ -151,7 +168,7 @@ export function PresetsScreen() {
                         <Pencil size={15} />
                       </button>
                       <button
-                        onClick={() => deletePreset(preset.id)}
+                        onClick={() => removePreset(preset)}
                         aria-label={`Delete ${preset.name}`}
                         className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-rose-400"
                       >
@@ -210,6 +227,7 @@ export function PresetsScreen() {
           onSave={(draft) => {
             savePreset({ ...draft, builtin: false });
             setEditing(null);
+            toast.show(`Saved “${draft.name.trim() || 'Untitled preset'}”`);
           }}
           onCancel={() => setEditing(null)}
         />
