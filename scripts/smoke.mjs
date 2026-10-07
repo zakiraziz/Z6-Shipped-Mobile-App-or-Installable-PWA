@@ -348,6 +348,91 @@ try {
   await sleep(300);
   await page.screenshot({ path: join(SHOTS, 'history-screen.png') });
 
+  // ---- user-friendly: search + a reversible clear ---------------------
+  const setSearch = (value) =>
+    page.evaluate((text) => {
+      const input = document.querySelector('input[aria-label="Search history"]');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      if (!setter) return false;
+      setter.call(input, text);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }, value);
+
+  const searchInputFound = await setSearch('zzz-no-such-session');
+  await sleep(300);
+  const noMatch = await page.evaluate(() => ({
+    rows: document.querySelector('main ul')?.querySelectorAll('li').length ?? 0,
+    hint: (document.body.innerText || '').includes('No sessions match'),
+  }));
+  check(
+    'history search narrows the list and admits when nothing matches [claim:history-search]',
+    searchInputFound && noMatch.rows === 0 && noMatch.hint,
+    JSON.stringify(noMatch)
+  );
+
+  await setSearch('');
+  await sleep(300);
+  const rowsBack = await page.evaluate(
+    () => document.querySelector('main ul')?.querySelectorAll('li').length ?? 0
+  );
+  check('clearing the search restores the sessions', rowsBack >= 1, `${rowsBack} rows`);
+
+  // Switching tabs must never drop you back in mid-scroll.
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Timer'))?.click();
+  });
+  await sleep(300);
+  await page.evaluate(() => window.scrollTo(0, 99999));
+  await sleep(150);
+  const scrolledFrom = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('History'))?.click();
+  });
+  await sleep(300);
+  const scrolledTo = await page.evaluate(() => window.scrollY);
+  check(
+    'switching tabs scrolls back to the top [claim:tab-top]',
+    scrolledFrom > 0 && scrolledTo === 0,
+    `scrolled to ${scrolledFrom}px, tab switch left ${scrolledTo}px`
+  );
+
+  // Two-tap clear, then the Undo the toast offers must actually work —
+  // an Undo that does nothing is worse than no Undo at all.
+  const historyBefore = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.history.v1') || '[]').length
+  );
+  const clickClear = () =>
+    page.evaluate(() => {
+      const labels = ['Clear', 'Tap again to clear'];
+      [...document.querySelectorAll('button')]
+        .find((b) => labels.includes((b.textContent || '').trim()))
+        ?.click();
+    });
+  await clickClear();
+  await sleep(150);
+  await clickClear();
+  await sleep(300);
+  const cleared = await page.evaluate(() => ({
+    left: JSON.parse(localStorage.getItem('beep.history.v1') || '[]').length,
+    undo: [...document.querySelectorAll('button')].some((b) => (b.textContent || '').trim() === 'Undo'),
+  }));
+  check(
+    'clear history clears AND offers Undo [claim:undo]',
+    historyBefore > 0 && cleared.left === 0 && cleared.undo,
+    JSON.stringify({ historyBefore, ...cleared })
+  );
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Undo')
+      ?.click();
+  });
+  await sleep(300);
+  const afterUndo = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.history.v1') || '[]').length
+  );
+  check('Undo puts the cleared history back [claim:undo]', afterUndo === historyBefore, `${afterUndo}/${historyBefore}`);
+
   // #20 receive + #18 reorder round-trip: open a share link, accept it,
   // then confirm the new custom preset unlocks reorder controls.
   const shareToken = Buffer.from(
@@ -395,6 +480,50 @@ try {
   });
   check('preference chips visible (big/halfway/voice/lefty)', prefsVisible);
 
+  // ---- user-friendly: hardware-keyboard shortcuts + help sheet ---------
+  // Focus must be on the page itself, not a control, or Space belongs to that
+  // control (by design) and the check would be asserting the wrong thing.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await page.keyboard.press('Space');
+  await sleep(400);
+  const afterSpace = await page.evaluate(() => ({
+    countdown: (document.body.innerText || '').includes('GET READY'),
+    title: document.title,
+  }));
+  check(
+    'SPACE starts the session via the 3-2-1 countdown [claim:shortcuts]',
+    afterSpace.countdown,
+    JSON.stringify(afterSpace)
+  );
+  await page.keyboard.press('Space');
+  await sleep(300);
+  check(
+    'SPACE again cancels the countdown [claim:shortcuts]',
+    await page.evaluate(() => !(document.body.innerText || '').includes('GET READY'))
+  );
+
+  await page.keyboard.type('?');
+  await sleep(300);
+  const helpShown = await page.evaluate(() => ({
+    dialog: !!document.querySelector('[role="dialog"][aria-modal="true"]'),
+    // innerText is rendered text — the heading is CSS-uppercased.
+    shortcuts: (document.body.innerText || '').toLowerCase().includes('keyboard shortcuts'),
+  }));
+  check(
+    'the ? key opens the help sheet [claim:help]',
+    helpShown.dialog && helpShown.shortcuts,
+    JSON.stringify(helpShown)
+  );
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  check(
+    'Escape closes the help sheet [claim:help]',
+    await page.evaluate(() => !document.querySelector('[role="dialog"][aria-modal="true"]'))
+  );
+
   check('no console/page errors (online phase)', errors.length === 0, errors.join(' | '));
 
   // ---- Round 3: stop confirmation + resume-after-kill (#1/#3) ----
@@ -414,6 +543,18 @@ try {
     'theme-color tints during work phase (#11)',
     themeDuringWork === '#7c2d12',
     String(themeDuringWork)
+  );
+
+  // The session keeps following you outside the ring: the tab title and the
+  // tab-bar pill both carry the live countdown.
+  const followAlong = await page.evaluate(() => ({
+    title: document.title,
+    pill: (document.querySelector('nav')?.innerText || '').includes('·'),
+  }));
+  check(
+    'live countdown in the tab title AND the tab-bar pill [claim:tab-title]',
+    followAlong.title.includes('·') && followAlong.title.includes('Beep') && followAlong.pill,
+    JSON.stringify(followAlong)
   );
 
   // #3: finishing a live session must confirm, never destroy silently
