@@ -55,4 +55,15 @@ export type Settings = {
   autoPause: boolean;
   /** #5 beep loudness, 0–1 (mute stays the header toggle) */
   volume: number;
+  /** synthesised cue voice — a waveform + envelope, still zero audio files */
+  soundTheme: SoundTheme;
+  /** length of the pre-start GET READY countdown in seconds; 0 = start instantly */
+  getReadySec: number;
 };
+
+/**
+ * The three cue voices. Each one is a different oscillator shape + envelope in
+ * lib/sound.ts — switching themes changes how every cue sounds without ever
+ * downloading an audio file, so the offline promise stays intact.
+ */
+export type SoundTheme = 'beep' | 'chime' | 'click';

@@ -34,23 +34,15 @@ export function serializePresets(custom: Preset[]): string {
 }
 
 /**
- * Parse an imported file (our format, or a bare preset array).
- * Every field is validated and clamped; invalid entries are rejected with a
- * per-entry note instead of disappearing silently.
+ * Validate + clamp one raw preset entry list (shared by file import and the
+ * full-backup restore, so both accept exactly the same shape and reject the
+ * same garbage).
  */
-export function parsePresetFile(text: string): ImportResult {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return { ok: false, error: 'file is not valid JSON' };
-  }
-
-  const list: unknown = Array.isArray(data)
-    ? data
-    : (data as { presets?: unknown } | null)?.presets;
-  if (!Array.isArray(list)) return { ok: false, error: 'no "presets" array found' };
-
+export function parsePresetArray(list: unknown[]): {
+  imported: Preset[];
+  skipped: number;
+  notes: string[];
+} {
   const imported: Preset[] = [];
   const notes: string[] = [];
   let skipped = 0;
@@ -102,6 +94,28 @@ export function parsePresetFile(text: string): ImportResult {
     });
   });
 
+  return { imported, skipped, notes };
+}
+
+/**
+ * Parse an imported file (our format, or a bare preset array).
+ * Every field is validated and clamped; invalid entries are rejected with a
+ * per-entry note instead of disappearing silently.
+ */
+export function parsePresetFile(text: string): ImportResult {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'file is not valid JSON' };
+  }
+
+  const list: unknown = Array.isArray(data)
+    ? data
+    : (data as { presets?: unknown } | null)?.presets;
+  if (!Array.isArray(list)) return { ok: false, error: 'no "presets" array found' };
+
+  const { imported, skipped, notes } = parsePresetArray(list);
   if (imported.length === 0 && skipped === 0) {
     return { ok: false, error: 'presets array is empty' };
   }

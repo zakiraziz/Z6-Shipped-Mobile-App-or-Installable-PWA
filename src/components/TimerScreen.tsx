@@ -10,12 +10,29 @@ import { primeAudio } from '../lib/sound';
 import { usePersistentState } from '../hooks/usePersistentState';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { useAppState } from '../state';
+import type { SoundTheme } from '../types';
 import { SessionSummary } from './SessionSummary';
 import { TimerDisplay } from './TimerDisplay';
 import { useToast } from './Toast';
 
 const secondaryButton =
   'flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 transition active:scale-95 disabled:opacity-30 disabled:active:scale-100';
+
+/** Cue voices — same note sequences, different waveform per theme. */
+const CUE_THEMES: { id: SoundTheme; label: string }[] = [
+  { id: 'beep', label: 'Beep' },
+  { id: 'chime', label: 'Chime' },
+  { id: 'click', label: 'Click' },
+];
+/** Get-ready countdown lengths; 0 = start immediately. */
+const GET_READY_OPTIONS = [0, 3, 5, 10];
+const readyLabel = (sec: number) => (sec === 0 ? 'Off' : `${sec}s`);
+const readyAria = (sec: number) =>
+  sec === 0 ? 'Get-ready countdown: off' : `Get-ready countdown: ${sec} seconds`;
+const segmentButton = (on: boolean) =>
+  `min-h-[32px] rounded-full border px-3 py-1 text-xs font-medium transition active:scale-95 ${
+    on ? 'border-lime-400/70 bg-lime-400/10 text-lime-300' : 'border-slate-700 text-slate-400'
+  }`;
 
 type Props = {
   /** #20: launched from a home-screen shortcut → start the 3-2-1 immediately */
@@ -101,8 +118,22 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
   // Deps: [autoStart], NOT [] — App reads the query string in its own effect,
   // which runs AFTER this child mounts, so the flag flips from false → true
   // and this must react to that change.
+  /**
+   * Start = run the get-ready countdown first — unless the length is switched
+   * off (0), in which case the engine starts right away (one cue still fires
+   * so the tap feels answered).
+   */
+  const beginSession = () => {
+    if (settings.getReadySec > 0) {
+      setGetReady(settings.getReadySec);
+      return;
+    }
+    cueCountdown(settings);
+    timer.start();
+  };
+
   useEffect(() => {
-    if (autoStart && status === 'idle' && getReady === null) setGetReady(3);
+    if (autoStart && status === 'idle' && getReady === null) beginSession();
     onAutoStartDone?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart]);
@@ -133,10 +164,17 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
       return;
     }
     if (status === 'idle' || status === 'finished') {
-      setGetReady(3);
+      beginSession();
       return;
     }
     timer.toggle();
+  };
+
+  /** Switch the cue voice and play a one-shot preview of it immediately. */
+  const pickTheme = (theme: SoundTheme) => {
+    updateSetting('soundTheme', theme);
+    primeAudio(settings.sound);
+    testSound({ ...settings, soundTheme: theme });
   };
 
   const handleShare = async () => {
@@ -400,6 +438,42 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
             on={settings.autoPause}
             onClick={() => toggleSetting('autoPause')}
           />
+        </div>
+
+        {/* Cue voice + get-ready length — the two knobs people actually turn */}
+        <div className="mt-3 flex flex-col gap-2.5 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-300">Cue sound</span>
+            <div className="flex gap-1" role="group" aria-label="Cue sound theme">
+              {CUE_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  onClick={() => pickTheme(theme.id)}
+                  aria-label={`Cue sound: ${theme.label}`}
+                  aria-pressed={settings.soundTheme === theme.id}
+                  className={segmentButton(settings.soundTheme === theme.id)}
+                >
+                  {theme.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-300">Get ready</span>
+            <div className="flex gap-1" role="group" aria-label="Get-ready countdown length">
+              {GET_READY_OPTIONS.map((sec) => (
+                <button
+                  key={sec}
+                  onClick={() => updateSetting('getReadySec', sec)}
+                  aria-label={readyAria(sec)}
+                  aria-pressed={settings.getReadySec === sec}
+                  className={segmentButton(settings.getReadySec === sec)}
+                >
+                  {readyLabel(sec)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">

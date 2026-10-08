@@ -52,7 +52,7 @@ function announce(text: string, settings: Settings): void {
 
 /** Last 3 seconds of a segment. */
 export function cueCountdown(settings: Settings): void {
-  if (settings.sound) playCountdown(settings.volume);
+  if (settings.sound) playCountdown(settings.volume, settings.soundTheme);
   if (settings.vibrate) buzz(COUNTDOWN_PATTERN);
 }
 
@@ -80,7 +80,7 @@ export type PhaseCue = {
  * only, so work ⇄ rest can never double-fire into a 4-beat.
  */
 export function cuePhaseChange(settings: Settings, phase: PhaseCue): void {
-  if (settings.sound) playPhaseChange(settings.volume);
+  if (settings.sound) playPhaseChange(settings.volume, settings.soundTheme);
   if (settings.vibrate) buzz(PULSE[phase.next.kind]);
   announce(
     `${phase.next.kind === 'work' ? 'Work' : 'Rest'}, round ${phase.next.round} of ${phase.rounds}`,
@@ -100,7 +100,7 @@ export type FinishCue = { presetName: string; elapsedMs: number; completed: bool
 
 /** Session ended: fanfare in front of the user, requireInteraction when not. */
 export function cueFinish(settings: Settings, finish: FinishCue): void {
-  if (settings.sound) playFinish(settings.volume);
+  if (settings.sound) playFinish(settings.volume, settings.soundTheme);
   if (settings.vibrate) buzz(FINISH_PATTERN);
   announce('Session complete', settings);
 
@@ -119,13 +119,13 @@ export function cueFinish(settings: Settings, finish: FinishCue): void {
 
 /** Midpoint of a segment — the optional "keep going" cue (off by default). */
 export function cueHalfway(settings: Settings): void {
-  if (settings.sound) playHalfway(settings.volume);
+  if (settings.sound) playHalfway(settings.volume, settings.soundTheme);
   if (settings.vibrate) buzz([40, 60, 40]);
 }
 
 /** #13 — "Test sound" / "Test haptics" buttons in preferences. */
 export function testSound(settings: Settings): void {
-  playPhaseChange(settings.volume);
+  playPhaseChange(settings.volume, settings.soundTheme);
 }
 
 /** Returns false when the platform has no vibration (iOS Safari, desktop). */

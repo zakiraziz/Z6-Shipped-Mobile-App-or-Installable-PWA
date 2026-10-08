@@ -1,20 +1,35 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Copy, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronUp, Copy, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { presetSummary, presetTotalMs } from '../lib/presets';
 import { parsePresetFile, serializePresets } from '../lib/presets-io';
+import { parseBackup, serializeBackup } from '../lib/backup-io';
 import { formatClock, uid } from '../lib/format';
 import type { Preset } from '../types';
 import { useAppState } from '../state';
 import { PresetForm, type PresetDraft } from './PresetForm';
 import { useToast } from './Toast';
 
+const ioButton =
+  'flex items-center gap-1.5 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 active:scale-95';
+
 export function PresetsScreen() {
-  const { presets, activePreset, selectPreset, savePreset, deletePreset, moveCustomPreset } =
-    useAppState();
+  const {
+    presets,
+    activePreset,
+    selectPreset,
+    savePreset,
+    deletePreset,
+    moveCustomPreset,
+    history,
+    settings,
+    restoreBackup,
+  } = useAppState();
   const toast = useToast();
   const [editing, setEditing] = useState<PresetDraft | null>(null);
   const [ioStatus, setIoStatus] = useState('');
+  const [backupStatus, setBackupStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   const openNew = () =>
     setEditing({ id: uid(), name: '', workSec: 30, restSec: 15, rounds: 8 });
@@ -84,6 +99,61 @@ export function PresetsScreen() {
       );
     } catch {
       setIoStatus('Could not read that file.');
+    }
+  };
+
+  /**
+   * Full backup: presets + history + settings in ONE file, so moving devices
+   * doesn't mean three separate exports (and one forgotten history file).
+   */
+  const handleBackup = () => {
+    const blob = new Blob(
+      [serializeBackup({ presets: customPresets, history, settings })],
+      { type: 'application/json' }
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `beep-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBackupStatus(
+      `Backed up ${customPresets.length} preset${customPresets.length === 1 ? '' : 's'}, ` +
+        `${history.length} session${history.length === 1 ? '' : 's'} and your settings.`
+    );
+  };
+
+  const handleRestoreFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    try {
+      const result = parseBackup(await file.text());
+      if (!result.ok) {
+        setBackupStatus(`Restore failed: ${result.error}.`);
+        return;
+      }
+      const added = restoreBackup(result);
+      // Surface skips and unknown fields — never drop entries silently.
+      const notes =
+        result.notes.length > 0
+          ? ` — ${result.notes.slice(0, 2).join('; ')}${result.notes.length > 2 ? '…' : ''}`
+          : '';
+      setBackupStatus(
+        `Restored ${added.presets} preset${added.presets === 1 ? '' : 's'}, ` +
+          `${added.history} session${added.history === 1 ? '' : 's'}, ` +
+          `${added.settings} setting${added.settings === 1 ? '' : 's'}` +
+          `${result.skipped ? ` (skipped ${result.skipped})` : ''}${notes}.`
+      );
+      if (added.presets + added.history + added.settings > 0) {
+        toast.show(
+          `Backup restored — ${added.history} new session${added.history === 1 ? '' : 's'}`
+        );
+      } else {
+        toast.show('Nothing new in that backup — everything here already matched.');
+      }
+    } catch {
+      setBackupStatus('Could not read that file.');
     }
   };
 
@@ -220,6 +290,34 @@ export function PresetsScreen() {
           {ioStatus}
         </span>
       </div>
+
+      {/* one file for everything: presets + history + settings (device moves) */}
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-800 pt-4">
+        <div className="flex gap-2">
+          <button onClick={handleBackup} className={ioButton}>
+            <Archive size={13} /> Full backup
+          </button>
+          <button onClick={() => restoreInputRef.current?.click()} className={ioButton}>
+            <Upload size={13} /> Restore
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json,.json"
+            aria-label="Restore full backup"
+            className="hidden"
+            onChange={handleRestoreFile}
+          />
+        </div>
+        <span className="text-right text-xs text-slate-500" role="status" aria-label="Full backup status">
+          {backupStatus}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        Full backup saves presets, history and settings in one file — restoring it{' '}
+        <span className="text-slate-400">merges</span> into this device, so nothing already
+        here is overwritten.
+      </p>
 
       {editing && (
         <PresetForm

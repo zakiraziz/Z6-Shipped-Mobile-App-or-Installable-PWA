@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { BUILTIN_PRESETS, presetTotalMs } from './lib/presets';
 import { uid } from './lib/format';
+import type { BackupData } from './lib/backup-io';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useIntervalTimer, type TimerApi } from './hooks/useIntervalTimer';
 import type { HistoryEntry, Preset, Settings } from './types';
@@ -19,6 +20,8 @@ export const DEFAULT_SETTINGS: Settings = {
   leftHanded: false,
   autoPause: false,
   volume: 0.7,
+  soundTheme: 'beep',
+  getReadySec: 3,
 };
 
 type AppState = {
@@ -34,6 +37,12 @@ type AppState = {
   restoreHistory: (entries: HistoryEntry[]) => void;
   /** #18 label a saved session ("Legs day") */
   updateHistoryEntry: (id: string, patch: Partial<HistoryEntry>) => void;
+  /**
+   * Full-backup restore (#21): presets and history MERGE by id (anything
+   * already on the device always wins), settings overlay on top. Returns what
+   * was actually added so the UI can report it instead of implying a replace.
+   */
+  restoreBackup: (data: BackupData) => { presets: number; history: number; settings: number };
   settings: Settings;
   toggleSetting: (key: keyof Settings) => void;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
@@ -118,6 +127,37 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [setHistory]
   );
 
+  /**
+   * Full-backup restore: merge, never replace. Duplicates (same id) are
+   * skipped so restoring the same file twice is a no-op, and the counts come
+   * back so the status line can say exactly what landed.
+   */
+  const restoreBackup = useCallback(
+    (data: BackupData) => {
+      const knownPresets = new Set(customPresets.map((item) => item.id));
+      const newPresets = data.presets.filter((item) => !knownPresets.has(item.id));
+      const knownSessions = new Set(history.map((entry) => entry.id));
+      const newHistory = data.history.filter((entry) => !knownSessions.has(entry.id));
+      const settingsKeys = Object.keys(data.settings);
+
+      if (newPresets.length > 0) {
+        setCustomPresets((current) => [...current, ...newPresets]);
+      }
+      if (newHistory.length > 0) {
+        setHistory((current) =>
+          [...current, ...newHistory]
+            .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))
+            .slice(0, MAX_HISTORY)
+        );
+      }
+      if (settingsKeys.length > 0) {
+        setSettings((current) => ({ ...DEFAULT_SETTINGS, ...current, ...data.settings }));
+      }
+      return { presets: newPresets.length, history: newHistory.length, settings: settingsKeys.length };
+    },
+    [customPresets, history, setCustomPresets, setHistory, setSettings]
+  );
+
   const handleTimerComplete = useCallback(
     (info: { completed: boolean; elapsedMs: number }) => {
       addHistory({
@@ -168,6 +208,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       clearHistory,
       restoreHistory,
       updateHistoryEntry,
+      restoreBackup,
       settings: mergedSettings,
       toggleSetting,
       updateSetting,
@@ -184,6 +225,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       clearHistory,
       restoreHistory,
       updateHistoryEntry,
+      restoreBackup,
       mergedSettings,
       toggleSetting,
       updateSetting,

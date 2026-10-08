@@ -22,6 +22,8 @@ const SHORTCUTS: { keys: string; action: string }[] = [
 const TIPS: string[] = [
   'Tap the ring itself to start or pause — no precision needed with sweaty thumbs.',
   'NEXT under the ring shows what is coming, so you can prepare for the switch.',
+  'Pick your cue sound (Beep / Chime / Click) and get-ready length (Off · 3 · 5 · 10s) in the timer preferences.',
+  'Moving to a new phone? Presets → Full backup saves presets, history and settings in one file.',
   'Install Beep from your browser menu for a full-screen app that works offline.',
   'Lock-screen cues need notification permission — asked once, on your first Start.',
   'Left-handed? Big numbers? Those live with the preferences on the timer screen.',
