@@ -294,7 +294,7 @@ export function PresetsScreen() {
       {/* one file for everything: presets + history + settings (device moves) */}
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-800 pt-4">
         <div className="flex gap-2">
-          <button onClick={handleBackup} className={ioButton}>
+          <button onClick={handleBackup} className={ioButton} aria-label="Full backup">
             <Archive size={13} /> Full backup
           </button>
           <button onClick={() => restoreInputRef.current?.click()} className={ioButton}>

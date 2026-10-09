@@ -10,7 +10,7 @@
  * Bump VERSION whenever icons / manifest / anything precached changes so old
  * caches get garbage-collected on activate — `npm run bump:cache` does it.
  */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = `beep-${VERSION}`;
 
 const CORE_ASSETS = [

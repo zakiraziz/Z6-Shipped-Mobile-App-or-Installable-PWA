@@ -14,7 +14,7 @@
  * Screenshots for the README are written to ../screenshots.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -479,6 +479,221 @@ try {
     );
   });
   check('preference chips visible (big/halfway/voice/lefty)', prefsVisible);
+
+  // ---- cues & settings pack: cue themes + configurable countdown -------
+  const themeLabels = ['Beep', 'Chime', 'Click'];
+  const themeButtons = await page.$$eval('button[aria-label^="Cue sound:"]', (buttons) =>
+    buttons.map((b) => ({
+      label: b.getAttribute('aria-label'),
+      pressed: b.getAttribute('aria-pressed'),
+    }))
+  );
+  check(
+    'cue sound theme selector (Beep / Chime / Click) present [claim:cues]',
+    themeLabels.every((label) => themeButtons.some((b) => b.label === `Cue sound: ${label}`)) &&
+      themeButtons.length === 3,
+    JSON.stringify(themeButtons.map((b) => b.label))
+  );
+
+  await page.click('button[aria-label="Cue sound: Chime"]');
+  await sleep(200);
+  await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
+  const themeAfterReload = await page.evaluate(() => ({
+    pressed: document
+      .querySelector('button[aria-label="Cue sound: Chime"]')
+      ?.getAttribute('aria-pressed'),
+    saved: JSON.parse(localStorage.getItem('beep.settings.v1') || '{}').soundTheme,
+  }));
+  check(
+    'cue sound theme switch persists through a reload [claim:cues]',
+    themeAfterReload.pressed === 'true' && themeAfterReload.saved === 'chime',
+    JSON.stringify(themeAfterReload)
+  );
+  // Put the default back so everything downstream hears the original beep.
+  await page.click('button[aria-label="Cue sound: Beep"]');
+
+  const readyButtons = await page.$$eval(
+    'button[aria-label^="Get-ready countdown:"]',
+    (buttons) => buttons.map((b) => b.getAttribute('aria-label'))
+  );
+  check(
+    'get-ready countdown length control offers off / 3s / 5s / 10s [claim:countdown-len]',
+    ['off', '3 seconds', '5 seconds', '10 seconds'].every((option) =>
+      readyButtons.includes(`Get-ready countdown: ${option}`)
+    ),
+    JSON.stringify(readyButtons)
+  );
+
+  // Off means OFF: Start must land straight in the engine, no GET READY.
+  await page.click('button[aria-label="Get-ready countdown: off"]');
+  await page.click('button[aria-label="Start timer"]');
+  let startedStraightAway = true;
+  try {
+    await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 2500 });
+  } catch {
+    startedStraightAway = false;
+  }
+  const readyShown = await page.evaluate(() =>
+    (document.body.innerText || '').includes('GET READY')
+  );
+  check(
+    'countdown length set to Off starts the engine with no 3-2-1 [claim:countdown-len]',
+    startedStraightAway && !readyShown,
+    JSON.stringify({ startedStraightAway, readyShown })
+  );
+
+  await page.click('button[aria-label="Reset timer"]');
+  await page.click('button[aria-label="Get-ready countdown: 3 seconds"]');
+  const readyRestored = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.settings.v1') || '{}').getReadySec
+  );
+  check(
+    'countdown length switch persists (3s default restored) [claim:countdown-len]',
+    readyRestored === 3,
+    String(readyRestored)
+  );
+
+  // ---- one-file backup: download it, then restore a modified copy ------
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) => (b.textContent || '').includes('Presets'))?.click();
+  });
+  await sleep(300);
+  const backupControls = await page.evaluate(() => {
+    const labels = [...document.querySelectorAll('button')].map((b) => (b.textContent || '').trim());
+    return {
+      backup: labels.some((t) => t.includes('Full backup')),
+      restore: labels.some((t) => t === 'Restore'),
+    };
+  });
+  check(
+    'full backup + restore controls exist on the Presets screen [claim:backup]',
+    backupControls.backup && backupControls.restore,
+    JSON.stringify(backupControls)
+  );
+
+  const dlDir = join(ROOT, 'node_modules', '.beep-backup-dl');
+  rmSync(dlDir, { recursive: true, force: true });
+  mkdirSync(dlDir, { recursive: true });
+  const dlClient = await browser.createCDPSession();
+  await dlClient.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir });
+  await page.click('button[aria-label="Full backup"]');
+  let backupText = '';
+  for (let i = 0; i < 50 && !backupText; i += 1) {
+    await sleep(100);
+    try {
+      const files = readdirSync(dlDir).filter((f) => f.endsWith('.json'));
+      if (files.length > 0) backupText = readFileSync(join(dlDir, files[0]), 'utf8');
+    } catch {
+      /* download still in flight */
+    }
+  }
+  let backupFile = null;
+  try {
+    backupFile = JSON.parse(backupText);
+  } catch {
+    backupFile = null;
+  }
+  check(
+    'Full backup downloads one JSON file with presets, history and settings [claim:backup]',
+    !!backupFile &&
+      backupFile.kind === 'backup' &&
+      Array.isArray(backupFile.presets) &&
+      Array.isArray(backupFile.history) &&
+      typeof backupFile.settings === 'object' &&
+      backupFile.settings !== null,
+    backupText ? `${backupText.length} bytes` : 'no download arrived'
+  );
+
+  if (backupFile) {
+    // Round trip: add one session + one preset + two settings to the file we
+    // just downloaded, restore THAT, and require all of it to land.
+    const modified = {
+      ...backupFile,
+      presets: [
+        ...backupFile.presets,
+        {
+          id: 'smoke-backup-preset',
+          name: 'Smoke backup preset',
+          workSec: 20,
+          restSec: 10,
+          rounds: 3,
+          builtin: false,
+        },
+      ],
+      history: [
+        ...backupFile.history,
+        {
+          id: 'smoke-fb-session',
+          presetName: 'Smoke backup fixture',
+          finishedAt: new Date().toISOString(),
+          plannedSeconds: 120,
+          elapsedSeconds: 120,
+          rounds: 4,
+          completed: true,
+          workSec: 30,
+          restSec: 30,
+        },
+      ],
+      settings: { ...backupFile.settings, getReadySec: 5, soundTheme: 'click' },
+    };
+    const injected = await page.evaluate(async (json) => {
+      const input = document.querySelector('input[aria-label="Restore full backup"]');
+      if (!input) return 'no input';
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([json], 'beep-backup-roundtrip.json', { type: 'application/json' }));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'ok';
+    }, JSON.stringify(modified));
+
+    let restoreStatus = '';
+    for (let i = 0; i < 50 && !restoreStatus.includes('Restored'); i += 1) {
+      await sleep(100);
+      restoreStatus = await page
+        .$eval('[aria-label="Full backup status"]', (el) => el.textContent || '')
+        .catch(() => '');
+    }
+    const landed = await page.evaluate(() => ({
+      history: JSON.parse(localStorage.getItem('beep.history.v1') || '[]'),
+      presets: JSON.parse(localStorage.getItem('beep.presets.v1') || '[]'),
+      settings: JSON.parse(localStorage.getItem('beep.settings.v1') || '{}'),
+    }));
+    check(
+      'restore merges sessions, presets and settings from the backup file [claim:backup]',
+      injected === 'ok' &&
+        restoreStatus.includes('Restored') &&
+        landed.history.some((e) => e.id === 'smoke-fb-session') &&
+        landed.presets.some((p) => p.id === 'smoke-backup-preset') &&
+        landed.settings.getReadySec === 5 &&
+        landed.settings.soundTheme === 'click',
+      JSON.stringify({
+        injected,
+        status: restoreStatus.slice(0, 90),
+        getReadySec: landed.settings.getReadySec,
+      })
+    );
+
+    // Remove the fixtures and restore the defaults so nothing downstream
+    // sees test data — then land back on the Timer tab for the checks after.
+    await page.evaluate(() => {
+      const history = JSON.parse(localStorage.getItem('beep.history.v1') || '[]').filter(
+        (entry) => entry.id !== 'smoke-fb-session'
+      );
+      localStorage.setItem('beep.history.v1', JSON.stringify(history));
+      const presets = JSON.parse(localStorage.getItem('beep.presets.v1') || '[]').filter(
+        (preset) => preset.id !== 'smoke-backup-preset'
+      );
+      localStorage.setItem('beep.presets.v1', JSON.stringify(presets));
+      const settings = JSON.parse(localStorage.getItem('beep.settings.v1') || '{}');
+      settings.getReadySec = 3;
+      settings.soundTheme = 'beep';
+      localStorage.setItem('beep.settings.v1', JSON.stringify(settings));
+    });
+  }
+  rmSync(dlDir, { recursive: true, force: true });
+  // Land back on the Timer tab, idle, with the defaults restored — the checks
+  // after this point assume a fresh shell (3-2-1 countdown, no test data).
+  await page.goto(BASE, { waitUntil: 'networkidle0', timeout: 20000 });
 
   // ---- user-friendly: hardware-keyboard shortcuts + help sheet ---------
   // Focus must be on the page itself, not a control, or Space belongs to that
