@@ -526,6 +526,10 @@ try {
 
   // Off means OFF: Start must land straight in the engine, no GET READY.
   await page.click('button[aria-label="Get-ready countdown: off"]');
+  // The prefs card sits below the ring — scroll back to the top first, or the
+  // sticky header can swallow the Start click after the deep scroll above.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(250);
   await page.click('button[aria-label="Start timer"]');
   let startedStraightAway = true;
   try {
@@ -536,10 +540,18 @@ try {
   const readyShown = await page.evaluate(() =>
     (document.body.innerText || '').includes('GET READY')
   );
+  const startDiag = await page.evaluate(() => ({
+    primary:
+      document
+        .querySelector('button[aria-label="Start timer"], button[aria-label="Pause timer"]')
+        ?.getAttribute('aria-label') ?? null,
+    scrollY: window.scrollY,
+    getReadySec: JSON.parse(localStorage.getItem('beep.settings.v1') || '{}').getReadySec,
+  }));
   check(
     'countdown length set to Off starts the engine with no 3-2-1 [claim:countdown-len]',
     startedStraightAway && !readyShown,
-    JSON.stringify({ startedStraightAway, readyShown })
+    JSON.stringify({ startedStraightAway, readyShown, ...startDiag })
   );
 
   await page.click('button[aria-label="Reset timer"]');
@@ -574,7 +586,7 @@ try {
   const dlDir = join(ROOT, 'node_modules', '.beep-backup-dl');
   rmSync(dlDir, { recursive: true, force: true });
   mkdirSync(dlDir, { recursive: true });
-  const dlClient = await browser.createCDPSession();
+  const dlClient = await page.createCDPSession();
   await dlClient.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir });
   await page.click('button[aria-label="Full backup"]');
   let backupText = '';
