@@ -14,7 +14,7 @@
  * Screenshots for the README are written to ../screenshots.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -1134,6 +1134,19 @@ try {
   await browser.close();
   // Sweep the backup-download scratch dir once the browser has released it.
   await removeScratchDir(join(ROOT, 'node_modules', '.beep-backup-dl'));
+}
+
+/**
+ * Chrome can flush (and therefore re-create) the downloaded backup AFTER
+ * browser.close() resolves, which would silently undo the sweeps above — so
+ * wait for the process to actually die, sweep one last time, and say so if
+ * the file still refuses to go.
+ */
+const SCRATCH_DIR = join(ROOT, 'node_modules', '.beep-backup-dl');
+await sleep(1500);
+await removeScratchDir(SCRATCH_DIR);
+if (existsSync(SCRATCH_DIR)) {
+  console.log(`  note: scratch dir still present at exit: ${SCRATCH_DIR}`);
 }
 
 if (failures.length > 0) {
