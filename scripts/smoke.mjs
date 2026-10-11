@@ -53,6 +53,24 @@ function check(name, ok, extra = '') {
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The backup round-trip downloads a file into node_modules/.beep-backup-dl.
+ * Chrome can keep the handle open for a beat after the run, and a Windows
+ * EPERM must not leak into an otherwise green suite — so delete with retries
+ * and say so loudly if the file genuinely refuses to go.
+ */
+async function removeScratchDir(dir) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      await sleep(250);
+    }
+  }
+  console.log(`  note: scratch dir still locked, could not remove: ${dir}`);
+}
+
 // Spawn vite preview DIRECTLY (no npm/cmd wrapper) so a single child.kill()
 // reliably frees the port on every platform — this is what makes CI possible.
 function startServer() {
@@ -702,7 +720,9 @@ try {
       localStorage.setItem('beep.settings.v1', JSON.stringify(settings));
     });
   }
-  rmSync(dlDir, { recursive: true, force: true });
+  // Chrome can hold the downloaded file for a moment — retry instead of
+  // leaking a lock-timeout error into an otherwise green run.
+  await removeScratchDir(dlDir);
   // Land back on the Timer tab, idle, with the defaults restored — the checks
   // after this point assume a fresh shell (3-2-1 countdown, no test data).
   await page.goto(BASE, { waitUntil: 'networkidle0', timeout: 20000 });
@@ -1112,6 +1132,8 @@ try {
     /* dist may not exist if smoke was run without a build */
   }
   await browser.close();
+  // Sweep the backup-download scratch dir once the browser has released it.
+  await removeScratchDir(join(ROOT, 'node_modules', '.beep-backup-dl'));
 }
 
 if (failures.length > 0) {
