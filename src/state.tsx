@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.7,
   soundTheme: 'beep',
   getReadySec: 3,
+  dailyGoalMinutes: 20,
 };
 
 type AppState = {

@@ -129,7 +129,13 @@ function parseSettings(raw: Record<string, unknown>): {
   const settings: Partial<Settings> = {};
   const notes: string[] = [];
   let skipped = 0;
-  const known = new Set<string>([...BOOLEAN_KEYS, 'volume', 'getReadySec', 'soundTheme']);
+  const known = new Set<string>([
+    ...BOOLEAN_KEYS,
+    'volume',
+    'getReadySec',
+    'soundTheme',
+    'dailyGoalMinutes',
+  ]);
 
   for (const key of Object.keys(raw)) {
     if (!known.has(key)) notes.push(`settings: ignored unknown field "${key}"`);
@@ -169,6 +175,15 @@ function parseSettings(raw: Record<string, unknown>): {
     } else {
       skipped += 1;
       notes.push('settings.soundTheme: unknown theme — skipped');
+    }
+  }
+
+  if ('dailyGoalMinutes' in raw) {
+    const value = Math.round(Number(raw.dailyGoalMinutes));
+    if (Number.isFinite(value)) settings.dailyGoalMinutes = Math.min(300, Math.max(0, value));
+    else {
+      skipped += 1;
+      notes.push('settings.dailyGoalMinutes: not a number — skipped');
     }
   }
 

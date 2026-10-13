@@ -59,6 +59,8 @@ export type Settings = {
   soundTheme: SoundTheme;
   /** length of the pre-start GET READY countdown in seconds; 0 = start instantly */
   getReadySec: number;
+  /** daily active-minutes target shown in history; 0 = goal off */
+  dailyGoalMinutes: number;
 };
 
 /**
