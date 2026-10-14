@@ -201,6 +201,13 @@ export function HistoryScreen({ onNavigate }: Props) {
         </div>
         {history.length > 0 && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={handleCsvExport}
+              aria-label="Export history as CSV"
+              className={controlButton}
+            >
+              <FileText size={13} /> {csvStatus || 'CSV'}
+            </button>
             <button onClick={handleExport} className={controlButton}>
               <Download size={13} /> {exportStatus || 'Export'}
             </button>
@@ -259,12 +266,114 @@ export function HistoryScreen({ onNavigate }: Props) {
               </p>
             </div>
           </div>
+          <div className="flex gap-3">
+            <div className={statCard}>
+              <p className="text-xl font-bold tabular-nums">{formatDuration(avgSeconds)}</p>
+              <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-500">
+                Avg session
+              </p>
+            </div>
+            <div className={statCard}>
+              <p className="text-xl font-bold tabular-nums">{bestStreak}d</p>
+              <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-500">
+                Best streak
+              </p>
+            </div>
+            <div className={statCard}>
+              <p className="text-xl font-bold tabular-nums">
+                {completedCount}/{history.length}
+              </p>
+              <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-500">
+                Completed
+              </p>
+            </div>
+          </div>
 
           {/* #16: this week in words + minutes — steadier than a streak */}
           <p className="text-xs text-slate-500">
             This week: {sessionsThisWeek} session{sessionsThisWeek === 1 ? '' : 's'} ·{' '}
             {formatDuration(weekSeconds)}
           </p>
+
+          {/* daily goal + a 7-day strip — the habit signal in one glance */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-300">Daily goal</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => stepGoal(-5)}
+                  aria-label="Decrease daily goal"
+                  disabled={!goalOn}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition active:scale-95 disabled:opacity-30"
+                >
+                  −
+                </button>
+                <span className="min-w-[64px] text-center text-sm font-semibold tabular-nums">
+                  {goalOn ? `${goal} min` : 'Off'}
+                </span>
+                <button
+                  onClick={() => stepGoal(5)}
+                  aria-label="Increase daily goal"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition active:scale-95"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            {goalOn && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Today{goalMet ? ' · goal met ✓' : ''}</span>
+                  <span className="tabular-nums">
+                    {last7[6].minutes} / {goal} min
+                  </span>
+                </div>
+                <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      goalMet ? 'bg-lime-400' : 'bg-lime-400/50'
+                    }`}
+                    style={{
+                      width: `${Math.min(100, Math.round((last7[6].minutes / goal) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            <div
+              role="img"
+              aria-label={`Activity last 7 days: ${last7
+                .map((day) => `${day.letter} ${day.minutes} min`)
+                .join(', ')}`}
+              className="mt-3 flex h-16 items-end justify-between gap-1.5"
+            >
+              {last7.map((day) => (
+                <div
+                  key={day.key}
+                  className="flex h-full flex-1 flex-col items-center justify-end gap-1"
+                >
+                  <div
+                    aria-hidden="true"
+                    className={`w-full rounded-t transition-all ${
+                      goalOn && day.minutes >= goal
+                        ? 'bg-lime-400'
+                        : day.isToday
+                          ? 'bg-sky-400/70'
+                          : 'bg-slate-700'
+                    }`}
+                    style={{
+                      height: `${Math.max(4, Math.round((day.minutes / peakMinutes) * 100))}%`,
+                    }}
+                  />
+                  <span
+                    className={`text-[10px] ${day.isToday ? 'text-slate-300' : 'text-slate-500'}`}
+                  >
+                    {day.letter}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* free-text search — preset names and session labels */}
           <div className="relative">
