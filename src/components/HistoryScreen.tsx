@@ -58,6 +58,49 @@ export function HistoryScreen({ onNavigate }: Props) {
     streakCursor.setDate(streakCursor.getDate() - 1);
   }
 
+  /** Best-ever streak over the whole history — consecutive local days. */
+  const trainedDayStarts = [...trainedDays]
+    .map((day) => new Date(day).setHours(0, 0, 0, 0))
+    .sort((a, b) => a - b);
+  let bestStreak = 0;
+  let dayRun = 0;
+  let previousDay: number | null = null;
+  for (const start of trainedDayStarts) {
+    dayRun =
+      previousDay !== null && Math.round((start - previousDay) / 86400000) === 1 ? dayRun + 1 : 1;
+    previousDay = start;
+    bestStreak = Math.max(bestStreak, dayRun);
+  }
+
+  const avgSeconds = history.length > 0 ? Math.round(totalSeconds / history.length) : 0;
+  const completedCount = history.filter((entry) => entry.completed).length;
+
+  /** Rolling last 7 local days (oldest → today), measured against the goal. */
+  const DAY_MS = 86400000;
+  const DAY_LETTERS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const last7 = Array.from({ length: 7 }, (_, index) => {
+    const start = new Date(todayStart.getTime() - (6 - index) * DAY_MS);
+    const key = start.toDateString();
+    const seconds = history
+      .filter((entry) => new Date(entry.finishedAt).toDateString() === key)
+      .reduce((sum, entry) => sum + entry.elapsedSeconds, 0);
+    return {
+      key,
+      letter: DAY_LETTERS[start.getDay()],
+      minutes: Math.round(seconds / 60),
+      isToday: index === 6,
+    };
+  });
+  const goal = settings.dailyGoalMinutes;
+  const goalOn = goal > 0;
+  const goalMet = goalOn && last7[6].minutes >= goal;
+  const peakMinutes = Math.max(goal, ...last7.map((day) => day.minutes), 1);
+
+  const stepGoal = (delta: number) =>
+    updateSetting('dailyGoalMinutes', Math.min(120, Math.max(0, goal + delta)));
+
   const presetNames = useMemo(
     () => [...new Set(history.map((entry) => entry.presetName))],
     [history]
@@ -106,6 +149,19 @@ export function HistoryScreen({ onNavigate }: Props) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setExportStatus('Exported');
     window.setTimeout(() => setExportStatus(''), 2500);
+  };
+
+  /** CSV twin of the JSON export — same data, opens in any spreadsheet. */
+  const handleCsvExport = () => {
+    const blob = new Blob([serializeHistoryCsv(history)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `beep-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setCsvStatus('Saved');
+    window.setTimeout(() => setCsvStatus(''), 2500);
   };
 
   /** #7/#17 re-run a past session — reuse a matching preset or recreate it. */
