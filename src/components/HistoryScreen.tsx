@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { ArrowDownUp, Download, Flame, Play, Search, Timer, Trash2 } from 'lucide-react';
+import { ArrowDownUp, Download, FileText, Flame, Play, Search, Timer, Trash2 } from 'lucide-react';
 import { formatDateTime, formatDuration, uid } from '../lib/format';
-import { serializeHistory } from '../lib/history-io';
+import { serializeHistory, serializeHistoryCsv } from '../lib/history-io';
 import type { HistoryEntry, Preset } from '../types';
 import type { TabId } from './TabBar';
 import { useAppState } from '../state';
@@ -18,8 +18,16 @@ type Props = {
 };
 
 export function HistoryScreen({ onNavigate }: Props) {
-  const { history, clearHistory, restoreHistory, presets, savePreset, selectPreset } =
-    useAppState();
+  const {
+    history,
+    clearHistory,
+    restoreHistory,
+    presets,
+    savePreset,
+    selectPreset,
+    settings,
+    updateSetting,
+  } = useAppState();
   const toast = useToast();
   const [armed, setArmed] = useState(false);
   /** #8 filter + sort once the list outgrows "newest first" */
@@ -27,6 +35,7 @@ export function HistoryScreen({ onNavigate }: Props) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'newest' | 'longest'>('newest');
   const [exportStatus, setExportStatus] = useState('');
+  const [csvStatus, setCsvStatus] = useState('');
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const entriesThisWeek = history.filter(
