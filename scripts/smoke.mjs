@@ -986,6 +986,82 @@ try {
     `${sortFlipped ? 'label flipped' : 'toggle did not respond'}; order ${sortFlipped && JSON.stringify(orderBefore) !== JSON.stringify(orderAfter) ? 'changed' : 'unchanged'}`
   );
 
+  // ---- insights pack: stats, 7-day strip, daily goal, CSV export ------
+  // textContent, not innerText — the stat labels are uppercased by CSS and
+  // innerText would return "AVG SESSION" instead of the source text.
+  const statsCards = await page.evaluate(() => {
+    const text = document.body.textContent || '';
+    return {
+      avg: text.includes('Avg session'),
+      best: text.includes('Best streak'),
+      done: text.includes('Completed'),
+    };
+  });
+  check(
+    'history stats show average session, best streak and completed count [claim:stats]',
+    statsCards.avg && statsCards.best && statsCards.done,
+    JSON.stringify(statsCards)
+  );
+
+  const strip = await page.evaluate(() => {
+    const chart = document.querySelector('[role="img"][aria-label^="Activity last 7 days"]');
+    return { present: !!chart, columns: chart ? chart.children.length : 0 };
+  });
+  check(
+    '7-day activity strip renders with one column per day [claim:stats]',
+    strip.present && strip.columns === 7,
+    JSON.stringify(strip)
+  );
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(250);
+  await page.click('button[aria-label="Increase daily goal"]');
+  const goalAfterUp = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.settings.v1') || '{}').dailyGoalMinutes
+  );
+  await page.click('button[aria-label="Decrease daily goal"]');
+  const goalRestored = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.settings.v1') || '{}').dailyGoalMinutes
+  );
+  check(
+    'daily goal stepper moves the goal by 5 and persists it [claim:stats]',
+    goalAfterUp === 25 && goalRestored === 20,
+    JSON.stringify({ goalAfterUp, goalRestored })
+  );
+
+  // CSV: a real download, then header + one row per saved session.
+  const csvDir = join(tmpdir(), 'beep-smoke-csv');
+  rmSync(csvDir, { recursive: true, force: true });
+  mkdirSync(csvDir, { recursive: true });
+  const csvClient = await page.createCDPSession();
+  await csvClient.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: csvDir });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(250);
+  await page.click('button[aria-label="Export history as CSV"]');
+  let csvText = '';
+  for (let i = 0; i < 50 && !csvText; i += 1) {
+    await sleep(100);
+    try {
+      const csvFiles = readdirSync(csvDir).filter((f) => f.endsWith('.csv'));
+      if (csvFiles.length > 0) csvText = readFileSync(join(csvDir, csvFiles[0]), 'utf8');
+    } catch {
+      /* download still in flight */
+    }
+  }
+  const csvSessionCount = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('beep.history.v1') || '[]').length
+  );
+  const csvLines = csvText.split(/\r?\n/).filter((line) => line.length > 0);
+  check(
+    'CSV export downloads with a header and one row per session [claim:csv]',
+    csvLines[0] ===
+      'date,preset,label,planned_seconds,elapsed_seconds,rounds,completed,work_seconds,rest_seconds' &&
+      csvLines.length === csvSessionCount + 1 &&
+      csvText.includes('Smoke test day'),
+    JSON.stringify({ lines: csvLines.length, sessions: csvSessionCount })
+  );
+  await removeScratchDir(csvDir);
+
   await page.evaluate(() => {
     document
       .querySelector('[aria-label$="again"]')
