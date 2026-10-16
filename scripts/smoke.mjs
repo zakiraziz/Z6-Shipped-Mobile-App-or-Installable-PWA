@@ -15,6 +15,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -54,21 +55,24 @@ function check(name, ok, extra = '') {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * The backup round-trip downloads a file into node_modules/.beep-backup-dl.
- * Chrome can keep the handle open for a beat after the run, and a Windows
- * EPERM must not leak into an otherwise green suite — so delete with retries
- * and say so loudly if the file genuinely refuses to go.
+ * The backup round-trip downloads a file into a scratch dir under the OS
+ * temp directory (never the repo — a leftover must not dirty the tree).
+ * Chrome can keep flushing the download for a beat after browser.close(), so
+ * delete → verify → retry, and say so loudly if it still refuses to go.
  */
 async function removeScratchDir(dir) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  let outcome = 'removed';
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
       rmSync(dir, { recursive: true, force: true });
-      return;
-    } catch {
-      await sleep(250);
+      outcome = 'rmSync ok';
+    } catch (error) {
+      outcome = (error && error.code) || String(error);
     }
+    if (!existsSync(dir)) return;
+    await sleep(250);
   }
-  console.log(`  note: scratch dir still locked, could not remove: ${dir}`);
+  console.log(`  note: scratch dir not cleaned after retries (${outcome}): ${dir}`);
 }
 
 // Spawn vite preview DIRECTLY (no npm/cmd wrapper) so a single child.kill()
@@ -601,7 +605,7 @@ try {
     JSON.stringify(backupControls)
   );
 
-  const dlDir = join(ROOT, 'node_modules', '.beep-backup-dl');
+  const dlDir = join(tmpdir(), 'beep-smoke-backup');
   rmSync(dlDir, { recursive: true, force: true });
   mkdirSync(dlDir, { recursive: true });
   const dlClient = await page.createCDPSession();
@@ -1139,15 +1143,10 @@ try {
 /**
  * Chrome can flush (and therefore re-create) the downloaded backup AFTER
  * browser.close() resolves, which would silently undo the sweeps above — so
- * wait for the process to actually die, sweep one last time, and say so if
- * the file still refuses to go.
+ * wait for the process to actually die, then sweep one last time.
  */
-const SCRATCH_DIR = join(ROOT, 'node_modules', '.beep-backup-dl');
 await sleep(1500);
-await removeScratchDir(SCRATCH_DIR);
-if (existsSync(SCRATCH_DIR)) {
-  console.log(`  note: scratch dir still present at exit: ${SCRATCH_DIR}`);
-}
+await removeScratchDir(join(tmpdir(), 'beep-smoke-backup'));
 
 if (failures.length > 0) {
   console.error(`\n${failures.length} check(s) failed.`);
