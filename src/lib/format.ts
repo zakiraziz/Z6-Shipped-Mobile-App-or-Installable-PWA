@@ -17,6 +17,25 @@ export function formatDuration(totalSeconds: number): string {
   return `${rest}s`;
 }
 
+/**
+ * Stopwatch with tenths: "0:07.4", "12:03.9"; past an hour the tenths drop
+ * and hours appear: "1:02:05". Floor, not round — a stopwatch never lies
+ * forward.
+ */
+export function formatStopwatch(ms: number): string {
+  const tenthsTotal = Math.max(0, Math.floor(ms / 100));
+  const tenths = tenthsTotal % 10;
+  const secondsTotal = Math.floor(tenthsTotal / 10);
+  const seconds = secondsTotal % 60;
+  const minutesTotal = Math.floor(secondsTotal / 60);
+  const minutes = minutesTotal % 60;
+  const hours = Math.floor(minutesTotal / 60);
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutesTotal}:${String(seconds).padStart(2, '0')}.${tenths}`;
+}
+
 /** "29 Sep 2026, 7:03 PM" (device locale) */
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);

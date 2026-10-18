@@ -4,6 +4,7 @@ import { uid } from './lib/format';
 import type { BackupData } from './lib/backup-io';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useIntervalTimer, type TimerApi } from './hooks/useIntervalTimer';
+import { useStopwatch, type StopwatchApi } from './hooks/useStopwatch';
 import type { HistoryEntry, Preset, Settings } from './types';
 
 
@@ -48,6 +49,8 @@ type AppState = {
   toggleSetting: (key: keyof Settings) => void;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   timer: TimerApi;
+  /** the second clock — provider-level so tab switches never stop it */
+  stopwatch: StopwatchApi;
 };
 
 const AppStateContext = createContext<AppState | null>(null);
@@ -178,6 +181,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const timer = useIntervalTimer(activePreset, mergedSettings, handleTimerComplete);
+  const stopwatch = useStopwatch();
 
   const updateSetting = useCallback(
     <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -214,6 +218,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       toggleSetting,
       updateSetting,
       timer,
+      stopwatch,
     }),
     [
       presets,
@@ -231,6 +236,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       toggleSetting,
       updateSetting,
       timer,
+      stopwatch,
     ]
   );
 

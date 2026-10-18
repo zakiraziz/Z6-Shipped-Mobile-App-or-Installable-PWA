@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellOff, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } from 'lucide-react';
-import { formatClock } from '../lib/format';
+import { BellOff, Flag, Pause, Play, RotateCcw, Share2, SkipForward, Square, X, Zap } from 'lucide-react';
+import { formatClock, formatStopwatch } from '../lib/format';
 import { cueCountdown, testHaptics, testSound } from '../lib/cues';
 import { getNotificationState, requestNotifyPermissionOnce } from '../lib/notify';
 import { hasWakeLock } from '../lib/platform';
@@ -43,9 +43,15 @@ type Props = {
 };
 
 export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props) {
-  const { presets, activePreset, selectPreset, timer, settings, toggleSetting, updateSetting } =
+  const { presets, activePreset, selectPreset, timer, stopwatch, settings, toggleSetting, updateSetting } =
     useAppState();
   const { status } = timer;
+  /**
+   * Which clock the screen shows. Deliberately NOT persisted: deep links,
+   * launches and every existing flow always land on the intervals screen —
+   * the stopwatch is one tap away, never in the way.
+   */
+  const [mode, setMode] = useState<'intervals' | 'stopwatch'>('intervals');
 
   const [notifyState, setNotifyState] = useState<NotificationPermission | 'unsupported'>(() =>
     getNotificationState()
@@ -195,25 +201,138 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
   };
 
   // Hardware keyboards: Space / S / R (the sheet lists them under `?`).
-  useShortcuts({ onPrimary: handlePrimary, onSkip: timer.skip, onReset: timer.reset });
+  // Whichever mode is on screen owns them — Space must never start the
+  // interval engine while the stopwatch is showing.
+  useShortcuts({
+    onPrimary: mode === 'stopwatch' ? stopwatch.toggle : handlePrimary,
+    onSkip: mode === 'stopwatch' ? undefined : timer.skip,
+    onReset: mode === 'stopwatch' ? stopwatch.reset : timer.reset,
+  });
 
   // Announced to screen readers on phase/status changes (not every tick).
   const announcement =
-    getReady !== null
-      ? `Get ready. ${getReady}.`
-      : status === 'idle'
-        ? `${activePreset.name} ready. ${activePreset.rounds} rounds.`
-        : status === 'finished'
-          ? 'Session complete. Saved to history.'
-          : status === 'paused'
-            ? `Paused. ${timer.segment.label}, round ${timer.round} of ${timer.rounds}.`
-            : `${timer.segment.label} started. Round ${timer.round} of ${timer.rounds}.`;
+    mode === 'stopwatch'
+      ? stopwatch.status === 'running'
+        ? `Stopwatch running. ${formatStopwatch(stopwatch.elapsed)}.`
+        : stopwatch.status === 'paused'
+          ? `Stopwatch paused at ${formatStopwatch(stopwatch.elapsed)}.`
+          : 'Stopwatch ready.'
+      : getReady !== null
+        ? `Get ready. ${getReady}.`
+        : status === 'idle'
+          ? `${activePreset.name} ready. ${
+              activePreset.steps?.length
+                ? `${activePreset.steps.length} steps`
+                : `${activePreset.rounds} rounds`
+            }.`
+          : status === 'finished'
+            ? 'Session complete. Saved to history.'
+            : status === 'paused'
+              ? `Paused. ${timer.segment.label}, round ${timer.round} of ${timer.rounds}.`
+              : `${timer.segment.label} started. Round ${timer.round} of ${timer.rounds}.`;
 
   return (
     <div>
       <div aria-live="assertive" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
+      {/* mode switch — intervals are the app; the stopwatch rides alongside */}
+      <div className="mt-4 flex justify-center">
+        <div
+          role="group"
+          aria-label="Timer mode"
+          className="flex rounded-full border border-slate-800 bg-slate-900/60 p-1"
+        >
+          <button
+            onClick={() => setMode('intervals')}
+            aria-label="Intervals mode"
+            aria-pressed={mode === 'intervals'}
+            className={`min-h-[36px] rounded-full px-4 py-1.5 text-xs font-semibold transition active:scale-95 ${
+              mode === 'intervals' ? 'bg-lime-400 text-slate-950' : 'text-slate-400'
+            }`}
+          >
+            Intervals
+          </button>
+          <button
+            onClick={() => setMode('stopwatch')}
+            aria-label="Stopwatch mode"
+            aria-pressed={mode === 'stopwatch'}
+            className={`min-h-[36px] rounded-full px-4 py-1.5 text-xs font-semibold transition active:scale-95 ${
+              mode === 'stopwatch' ? 'bg-lime-400 text-slate-950' : 'text-slate-400'
+            }`}
+          >
+            Stopwatch
+          </button>
+        </div>
+      </div>
+
+      {mode === 'stopwatch' ? (
+        <div className="mt-5 rounded-3xl border border-slate-800 bg-slate-900/60 px-5 py-7 text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.25em] text-slate-500">Stopwatch</p>
+          <p
+            aria-label="Stopwatch time"
+            className="mt-3 text-[56px] font-bold leading-none tabular-nums text-slate-100"
+          >
+            {formatStopwatch(stopwatch.elapsed)}
+          </p>
+          <div className="mt-6 flex items-center justify-center gap-6">
+            <button
+              onClick={stopwatch.reset}
+              disabled={stopwatch.status === 'idle'}
+              aria-label="Reset stopwatch"
+              className={secondaryButton}
+            >
+              <RotateCcw size={20} />
+            </button>
+            <button
+              onClick={stopwatch.toggle}
+              aria-label={
+                stopwatch.status === 'running'
+                  ? 'Pause stopwatch'
+                  : stopwatch.status === 'paused'
+                    ? 'Resume stopwatch'
+                    : 'Start stopwatch'
+              }
+              className="flex h-20 w-20 items-center justify-center rounded-full bg-lime-400 text-slate-950 shadow-lg shadow-lime-400/20 transition active:scale-95"
+            >
+              {stopwatch.status === 'running' ? (
+                <Pause size={34} fill="currentColor" />
+              ) : (
+                <Play size={34} fill="currentColor" className="ml-1" />
+              )}
+            </button>
+            <button
+              onClick={stopwatch.lap}
+              disabled={stopwatch.status !== 'running'}
+              aria-label="Lap stopwatch"
+              className={secondaryButton}
+            >
+              <Flag size={18} />
+            </button>
+          </div>
+          {stopwatch.laps.length > 0 && (
+            <ul aria-label="Stopwatch laps" className="mx-auto mt-6 w-full max-w-xs space-y-1">
+              {stopwatch.laps.map((mark, index) => {
+                const split = mark - (index > 0 ? stopwatch.laps[index - 1] : 0);
+                return (
+                  <li
+                    key={`${index}-${mark}`}
+                    className="flex items-center justify-between rounded-lg bg-slate-950/60 px-3 py-2 text-xs"
+                  >
+                    <span className="text-slate-500">Lap {index + 1}</span>
+                    <span className="tabular-nums text-lime-300">+{formatStopwatch(split)}</span>
+                    <span className="tabular-nums text-slate-400">{formatStopwatch(mark)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="mt-5 text-xs text-slate-500">
+            Its own clock — switch back to Intervals and the ring is exactly where you left it.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* preset chips — overflow must be VISIBLE: `no-scrollbar` here made a
           scrolling row look like a clipped one on desktop. The fade only shows
           when there is genuinely more content to the right. */}
@@ -387,6 +506,9 @@ export function TimerScreen({ autoStart, onAutoStartDone, onRequestStop }: Props
             <X size={14} />
           </button>
         </div>
+      )}
+
+      </>
       )}
 
       {/* active preset + share + preferences */}

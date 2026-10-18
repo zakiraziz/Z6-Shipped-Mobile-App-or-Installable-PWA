@@ -489,6 +489,99 @@ try {
   const reorderPresent = !!(await page.$('[aria-label^="Move "]'));
   check('reorder controls present for custom presets', reorderPresent);
 
+  // ---- custom sequences: built-in steps preset + the steps editor ------
+  const warmupRow = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('button')].find((el) =>
+      (el.textContent || '').includes('Warm-up flow')
+    );
+    if (!row) return { found: false };
+    const text = row.textContent || '';
+    return { found: true, summary: text.includes('steps'), total: text.includes('7:15') };
+  });
+
+  // The editor: open New, flip to steps mode, require the step tooling.
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button')].find(
+      (b) => (b.textContent || '').trim() === 'New'
+    )?.click();
+  });
+  await sleep(300);
+  await page.evaluate(() => document.querySelector('[aria-label="Step sequence mode"]')?.click());
+  await sleep(200);
+  const editor = await page.evaluate(() => ({
+    dialog: !!document.querySelector('[aria-label="Preset editor"]'),
+    classic: !!document.querySelector('[aria-label="Classic rounds mode"]'),
+    stepsMode: !!document.querySelector('[aria-label="Step sequence mode"]'),
+    addStep: !!document.querySelector('[aria-label="Add step"]'),
+    rows: document.querySelectorAll('[aria-label="Step list"] li').length,
+  }));
+  await page.evaluate(() => document.querySelector('[aria-label="Close"]')?.click());
+  await sleep(200);
+  const editorClosed = await page.evaluate(
+    () => !document.querySelector('[aria-label="Preset editor"]')
+  );
+  check(
+    'custom sequence: steps summary renders and the editor offers step building [claim:custom-seq]',
+    warmupRow.found &&
+      warmupRow.summary &&
+      warmupRow.total &&
+      editor.dialog &&
+      editor.classic &&
+      editor.stepsMode &&
+      editor.addStep &&
+      editor.rows >= 2 &&
+      editorClosed,
+    JSON.stringify({ warmupRow, editor, editorClosed })
+  );
+
+  // …and the sequence actually drives the ring, step labels and all.
+  await page.evaluate(() => {
+    [...document.querySelectorAll('nav button')].find((b) =>
+      (b.textContent || '').includes('Timer')
+    )?.click();
+  });
+  await sleep(300);
+  const chipClicked = await page.evaluate(() => {
+    const chip = [...document.querySelectorAll('[aria-label="Presets"] button')].find(
+      (b) => (b.textContent || '').trim() === 'Warm-up flow'
+    );
+    if (!chip) return false;
+    chip.click();
+    return true;
+  });
+  await sleep(250);
+  const readyText = await page.evaluate(
+    () => document.querySelector('[aria-live="assertive"]')?.textContent || ''
+  );
+  await page.click('button[aria-label="Start timer"]');
+  let stepsEngineStarted = true;
+  try {
+    await page.waitForSelector('button[aria-label="Pause timer"]', { timeout: 9000 });
+  } catch {
+    stepsEngineStarted = false;
+  }
+  await page.click('button[aria-label="Skip to next segment"]');
+  await sleep(350);
+  const stepText = await page.evaluate(
+    () => document.querySelector('[aria-live="assertive"]')?.textContent || ''
+  );
+  check(
+    'custom sequence drives the ring through its step labels [claim:custom-seq]',
+    chipClicked &&
+      readyText.includes('5 steps') &&
+      stepsEngineStarted &&
+      stepText.includes('Stretch'),
+    JSON.stringify({ chipClicked, readyText, stepText: stepText.slice(0, 90) })
+  );
+  // Put the stage back the way the checks after this expect it.
+  await page.click('button[aria-label="Reset timer"]');
+  await page.evaluate(() => {
+    [...document.querySelectorAll('[aria-label="Presets"] button')].find(
+      (b) => (b.textContent || '').trim() === 'Tabata'
+    )?.click();
+  });
+  await sleep(200);
+
   // #9–#12: preference chips must be visible on the timer card
   await page.evaluate(() => {
     [...document.querySelectorAll('nav button')].find((b) => (b.textContent || '').includes('Timer'))?.click();
@@ -586,6 +679,45 @@ try {
     readyRestored === 3,
     String(readyRestored)
   );
+
+  // ---- stopwatch: a second clock with laps, restored frozen ------------
+  await page.click('button[aria-label="Stopwatch mode"]');
+  const swVisible = await page.$('button[aria-label="Start stopwatch"]');
+  check('stopwatch mode opens its own clock beside the ring [claim:stopwatch]', !!swVisible);
+  await page.click('button[aria-label="Start stopwatch"]');
+  await sleep(1300);
+  const swTicking = await page.evaluate(() => ({
+    pause: !!document.querySelector('button[aria-label="Pause stopwatch"]'),
+    time: document.querySelector('[aria-label="Stopwatch time"]')?.textContent || '',
+  }));
+  await page.click('button[aria-label="Lap stopwatch"]');
+  const lapRows = await page.$$eval('[aria-label="Stopwatch laps"] li', (rows) => rows.length);
+  check(
+    'stopwatch counts up on its own clock and records a lap [claim:stopwatch]',
+    swTicking.pause && !/^0:00\.0$/.test(swTicking.time) && lapRows === 1,
+    JSON.stringify({ ...swTicking, lapRows })
+  );
+
+  // A reload must never resurrect it as a secretly running clock.
+  await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
+  await page.click('button[aria-label="Stopwatch mode"]');
+  await sleep(250);
+  const swRestored = await page.evaluate(() => ({
+    snap: JSON.parse(localStorage.getItem('beep.stopwatch.v1') || 'null'),
+    time: document.querySelector('[aria-label="Stopwatch time"]')?.textContent || '',
+    resume: !!document.querySelector('button[aria-label="Resume stopwatch"]'),
+  }));
+  check(
+    'stopwatch survives a reload frozen at its saved position [claim:stopwatch]',
+    !!swRestored.snap && swRestored.snap.running === false && swRestored.resume &&
+      !/^0:00\.0$/.test(swRestored.time),
+    JSON.stringify({ time: swRestored.time, resume: swRestored.resume, running: swRestored.snap?.running })
+  );
+  // Leave no test data behind: reset it and go back to Intervals.
+  await page.click('button[aria-label="Reset stopwatch"]');
+  await page.click('button[aria-label="Intervals mode"]');
+  const swCleared = await page.evaluate(() => localStorage.getItem('beep.stopwatch.v1'));
+  check('stopwatch reset clears its saved snapshot', swCleared === null, String(swCleared));
 
   // ---- one-file backup: download it, then restore a modified copy ------
   await page.evaluate(() => {

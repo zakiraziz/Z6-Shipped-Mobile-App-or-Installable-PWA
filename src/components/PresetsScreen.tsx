@@ -34,8 +34,15 @@ export function PresetsScreen() {
   const openNew = () =>
     setEditing({ id: uid(), name: '', workSec: 30, restSec: 15, rounds: 8 });
 
-  const openEdit = (id: string, name: string, workSec: number, restSec: number, rounds: number) =>
-    setEditing({ id, name, workSec, restSec, rounds });
+  const openEdit = (preset: Preset) =>
+    setEditing({
+      id: preset.id,
+      name: preset.name,
+      workSec: preset.workSec,
+      restSec: preset.restSec,
+      rounds: preset.rounds,
+      steps: preset.steps,
+    });
 
   /** #17 — "Save as…": iterate without fear of destroying the original. */
   const duplicatePreset = (preset: Preset) => {
@@ -229,9 +236,7 @@ export function PresetsScreen() {
                         <ChevronDown size={16} />
                       </button>
                       <button
-                        onClick={() =>
-                          openEdit(preset.id, preset.name, preset.workSec, preset.restSec, preset.rounds)
-                        }
+                        onClick={() => openEdit(preset)}
                         aria-label={`Edit ${preset.name}`}
                         className="flex h-11 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
                       >

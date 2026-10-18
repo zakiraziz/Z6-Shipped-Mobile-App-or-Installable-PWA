@@ -8,6 +8,21 @@ export type Preset = {
   rounds: number;
   /** built-in presets cannot be edited or deleted */
   builtin?: boolean;
+  /**
+   * When present, the session runs these ordered steps instead of the
+   * work/rest × rounds loop. workSec/restSec/rounds are kept mirrored from
+   * the steps (deriveClassicFromSteps) so every classic consumer — history
+   * rows, summaries, resume — keeps working unchanged.
+   */
+  steps?: PresetStep[];
+};
+
+/** One ordered step of a custom sequence preset. */
+export type PresetStep = {
+  kind: SegmentKind;
+  seconds: number;
+  /** optional custom name ("Jump rope"); defaults to Work/Rest */
+  label?: string;
 };
 
 export type SegmentKind = 'work' | 'rest';

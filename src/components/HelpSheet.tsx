@@ -12,7 +12,7 @@ type Props = {
  * header (?) button and the `?` key so it is never a mystery.
  */
 const SHORTCUTS: { keys: string; action: string }[] = [
-  { keys: 'Space', action: 'Start · pause · resume (press again to cancel the 3-2-1)' },
+  { keys: 'Space', action: 'Start · pause · resume (again cancels the 3-2-1; drives the stopwatch in Stopwatch mode)' },
   { keys: 'S', action: 'Skip to the next segment' },
   { keys: 'R', action: 'Reset the timer' },
   { keys: '?', action: 'Open and close this help' },
